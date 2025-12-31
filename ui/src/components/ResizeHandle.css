@@ -1,0 +1,43 @@
+.resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+    z-index: 10;
+    transition: background-color var(--transition-fast);
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+    background: var(--color-accent-gradient);
+}
+
+.resize-handle-bar {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px;
+    height: 60px;
+    background: var(--color-text-tertiary);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.resize-handle:hover .resize-handle-bar,
+.resize-handle.dragging .resize-handle-bar {
+    background: var(--color-text-light);
+    height: 80px;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.resize-handle.dragging {
+    width: 16px;
+}
+
+/* Prevent text selection while dragging */
+.resize-handle.dragging~* {
+    user-select: none;
+}
