@@ -14,4 +14,5 @@ public class SetInfo {
     private String setName;
     private Long objectCount;
     private Long memoryDataBytes;
+    private Long deviceDataBytes;
 }

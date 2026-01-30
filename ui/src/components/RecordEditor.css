@@ -211,6 +211,11 @@
     resize: vertical;
     min-height: 200px;
     border: 2px solid var(--color-accent-green) !important;
+    background: var(--color-bg-secondary) !important;
+    color: var(--color-text-primary) !important;
+    width: 100%;
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
 }
 
 .bins-editor:focus {

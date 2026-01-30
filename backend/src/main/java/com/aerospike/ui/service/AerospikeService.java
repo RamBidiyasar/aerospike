@@ -173,6 +173,7 @@ public class AerospikeService {
                             .setName(setName)
                             .objectCount(parseLong(setData.get("objects")))
                             .memoryDataBytes(parseLong(setData.get("memory_data_bytes")))
+                            .deviceDataBytes(parseLong(setData.get("device_data_bytes")))
                             .build());
                 }
             }

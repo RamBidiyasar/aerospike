@@ -44,12 +44,11 @@ function App() {
 
   const handleConnectionChange = (status) => {
     updateConnectionStatus(status);
-    if (!status.connected) {
-      updateRecords([]);
-      selectNamespace(null);
-      selectSet(null);
-      selectRecord(null);
-    }
+    // Always reset state when connection changes (whether connecting or disconnecting)
+    updateRecords([]);
+    selectNamespace(null);
+    selectSet(null);
+    selectRecord(null);
   };
 
   const handleSelectNamespace = (namespace) => {
