@@ -25,7 +25,7 @@ export const NamespaceBrowser = ({
             setSets({});
             setExpandedNamespaces({});
         }
-    }, [connectionStatus.connected]);
+    }, [connectionStatus]);
 
     const loadNamespaces = async () => {
         setLoading(true);

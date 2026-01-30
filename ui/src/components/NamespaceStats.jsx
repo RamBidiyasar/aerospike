@@ -26,12 +26,14 @@ export const NamespaceStats = ({ namespace }) => {
             const totalSets = setsData.length;
             const totalRecords = setsData.reduce((acc, set) => acc + (set.objectCount || 0), 0);
             const totalMemory = setsData.reduce((acc, set) => acc + (set.memoryDataBytes || 0), 0);
+            const totalDevice = setsData.reduce((acc, set) => acc + (set.deviceDataBytes || 0), 0);
 
             setStats({
                 namespace,
                 totalSets,
                 totalRecords,
                 totalMemory,
+                totalDevice,
                 sets: setsData.sort((a, b) => (b.objectCount || 0) - (a.objectCount || 0)) // Sort by record count desc
             });
         } catch (err) {
@@ -54,7 +56,7 @@ export const NamespaceStats = ({ namespace }) => {
     }
 
     const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 B';
+        if (!bytes || bytes === 0) return '0 B';
         const k = 1024;
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -98,6 +100,18 @@ export const NamespaceStats = ({ namespace }) => {
                         <p>{formatBytes(stats.totalMemory)}</p>
                     </div>
                 </div>
+
+                {stats.totalDevice > 0 && (
+                    <div className="stat-card">
+                        <div className="stat-icon-wrapper">
+                            <FiDatabase className="stat-icon" />
+                        </div>
+                        <div className="stat-content">
+                            <h3>Disk Usage</h3>
+                            <p>{formatBytes(stats.totalDevice)}</p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="sets-breakdown">
@@ -109,6 +123,7 @@ export const NamespaceStats = ({ namespace }) => {
                                 <th>Set Name</th>
                                 <th>Records</th>
                                 <th>Memory Usage</th>
+                                {stats.totalDevice > 0 && <th>Disk Usage</th>}
                                 <th className="percentage-col">% of Total</th>
                             </tr>
                         </thead>
@@ -127,7 +142,8 @@ export const NamespaceStats = ({ namespace }) => {
                                             </div>
                                         </td>
                                         <td>{(set.objectCount || 0).toLocaleString()}</td>
-                                        <td>{formatBytes(set.memoryDataBytes || 0)}</td>
+                                        <td>{formatBytes(set.memoryDataBytes)}</td>
+                                        {stats.totalDevice > 0 && <td>{formatBytes(set.deviceDataBytes)}</td>}
                                         <td>
                                             <div className="percentage-bar-wrapper">
                                                 <div className="percentage-text">{percentage}%</div>
