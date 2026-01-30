@@ -48,6 +48,7 @@ public class AerospikeService {
 
             return getConnectionInfo();
         } catch (Exception e) {
+            System.out.println(e.getMessage());
             log.error("Failed to connect to Aerospike", e);
             return ConnectionInfo.builder()
                     .connected(false)

@@ -8,7 +8,8 @@ export const NamespaceBrowser = ({
     onSelectSet,
     selectedNamespace,
     selectedSet,
-    onNamespacesLoad
+    onNamespacesLoad,
+    onSelectNamespace
 }) => {
     const [namespaces, setNamespaces] = useState([]);
     const [expandedNamespaces, setExpandedNamespaces] = useState({});
@@ -109,8 +110,13 @@ export const NamespaceBrowser = ({
                 {namespaces.map((namespace) => (
                     <div key={namespace.name} className="namespace-item">
                         <div
-                            className="namespace-header"
-                            onClick={() => toggleNamespace(namespace)}
+                            className={`namespace-header ${selectedNamespace === namespace.name && !selectedSet ? 'selected' : ''}`}
+                            onClick={() => {
+                                toggleNamespace(namespace);
+                                if (onSelectNamespace) {
+                                    onSelectNamespace(namespace.name);
+                                }
+                            }}
                         >
                             <div className="namespace-info">
                                 {expandedNamespaces[namespace.name] ? (

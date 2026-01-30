@@ -7,6 +7,7 @@ import { RecordEditor } from './components/RecordEditor';
 import { AddRecordModal } from './components/AddRecordModal';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ResizeHandle } from './components/ResizeHandle';
+import { NamespaceStats } from './components/NamespaceStats';
 import { useAerospike } from './hooks/useAerospike';
 import { recordAPI } from './services/api';
 import './App.css';
@@ -49,6 +50,13 @@ function App() {
       selectSet(null);
       selectRecord(null);
     }
+  };
+
+  const handleSelectNamespace = (namespace) => {
+    selectNamespace(namespace);
+    selectSet(null);
+    selectRecord(null);
+    updateRecords([]);
   };
 
   const handleSelectSet = async (namespace, setName) => {
@@ -195,6 +203,7 @@ function App() {
                 selectedNamespace={selectedNamespace}
                 selectedSet={selectedSet}
                 onNamespacesLoad={setAvailableNamespaces}
+                onSelectNamespace={handleSelectNamespace}
               />
             )}
             <button
@@ -207,17 +216,21 @@ function App() {
           </div>
 
           <div className="data-panel">
-            <DataTable
-              records={records}
-              onSelectRecord={selectRecord}
-              onDeleteRecord={handleDeleteRecord}
-              selectedRecord={selectedRecord}
-              onAddRecord={() => setIsAddModalOpen(true)}
-              onSearch={handleSearch}
-              namespace={selectedNamespace}
-              setName={selectedSet}
-              isSearching={loading}
-            />
+            {selectedNamespace && !selectedSet ? (
+              <NamespaceStats namespace={selectedNamespace} />
+            ) : (
+              <DataTable
+                records={records}
+                onSelectRecord={selectRecord}
+                onDeleteRecord={handleDeleteRecord}
+                selectedRecord={selectedRecord}
+                onAddRecord={() => setIsAddModalOpen(true)}
+                onSearch={handleSearch}
+                namespace={selectedNamespace}
+                setName={selectedSet}
+                isSearching={loading}
+              />
+            )}
           </div>
 
           {selectedRecord && (
