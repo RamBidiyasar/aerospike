@@ -94,6 +94,11 @@
     background: var(--color-bg-elevated);
 }
 
+.namespace-header.selected {
+    background: var(--color-bg-elevated);
+    border-left: 3px solid var(--color-accent-primary);
+}
+
 .namespace-info {
     display: flex;
     align-items: center;
