@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { FiPlus, FiX, FiTrash2 } from 'react-icons/fi';
 import './AddRecordModal.css';
 
@@ -13,21 +13,6 @@ export const AddRecordModal = ({ isOpen, onClose, onSave, selectedNamespace, sel
     const [error, setError] = useState(null);
     const [showNewNamespace, setShowNewNamespace] = useState(false);
     const [showNewSet, setShowNewSet] = useState(false);
-
-    useEffect(() => {
-        if (isOpen) {
-            setFormData({
-                namespace: selectedNamespace || '',
-                setName: selectedSet || '',
-                key: '',
-                ttl: '',
-            });
-            setBins([{ name: '', value: '', type: 'string' }]);
-            setError(null); // Clear error on open
-            setShowNewNamespace(false);
-            setShowNewSet(false);
-        }
-    }, [isOpen, selectedNamespace, selectedSet]);
 
     const addBin = () => {
         setBins([...bins, { name: '', value: '', type: 'string' }]);
@@ -85,7 +70,7 @@ export const AddRecordModal = ({ isOpen, onClose, onSave, selectedNamespace, sel
 
         const binsObject = {};
         for (const bin of validBins) {
-            if (binsObject.hasOwnProperty(bin.name)) {
+            if (Object.prototype.hasOwnProperty.call(binsObject, bin.name)) {
                 setError(`Duplicate bin name: "${bin.name}"`);
                 return;
             }

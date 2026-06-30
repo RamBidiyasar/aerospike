@@ -317,6 +317,7 @@ function App() {
                     maxWidth={800}
                   />
                   <RecordEditor
+                    key={`${selectedRecord.namespace}:${selectedRecord.setName}:${selectedRecord.key}`}
                     record={selectedRecord}
                     onSave={handleSaveRecord}
                     onClose={() => selectRecord(null)}
@@ -335,14 +336,16 @@ function App() {
         </div>
       </div>
 
-      <AddRecordModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSave={handleAddRecord}
-        selectedNamespace={selectedNamespace}
-        selectedSet={activeSetName}
-        availableNamespaces={availableNamespaces}
-      />
+      {isAddModalOpen && (
+        <AddRecordModal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          onSave={handleAddRecord}
+          selectedNamespace={selectedNamespace}
+          selectedSet={activeSetName}
+          availableNamespaces={availableNamespaces}
+        />
+      )}
     </div>
   );
 }

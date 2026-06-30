@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FiChevronLeft, FiChevronRight, FiEdit2, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
 import { LoadingOverlay } from './LoadingOverlay';
 import './DataTable.css';
@@ -26,18 +26,15 @@ export const DataTable = ({
     const [pageSize, setPageSize] = useState(20);
     const [searchActive, setSearchActive] = useState(false);
 
-    const safeRecords = records || [];
+    const safeRecords = useMemo(() => records || [], [records]);
     const totalRecords = safeRecords.length;
     const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
-    const startIndex = (currentPage - 1) * pageSize;
+    const activePage = Math.min(currentPage, totalPages);
+    const startIndex = (activePage - 1) * pageSize;
     const endIndex = Math.min(startIndex + pageSize, totalRecords);
     const canSearch = Boolean(namespace && onSearch);
     const canAdd = Boolean(namespace && onAddRecord);
     const showLocationColumns = !setName || safeRecords.some(record => record.namespace !== namespace || record.setName !== setName);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [records, namespace, setName]);
 
     const paginatedRecords = useMemo(() => {
         return safeRecords.slice(startIndex, endIndex);
@@ -314,21 +311,21 @@ export const DataTable = ({
                             <div className="page-navigation">
                                 <button
                                     className="page-btn"
-                                    onClick={() => handlePageChange(currentPage - 1)}
-                                    disabled={currentPage === 1}
+                                    onClick={() => handlePageChange(activePage - 1)}
+                                    disabled={activePage === 1}
                                     title="Previous page"
                                 >
                                     <FiChevronLeft />
                                 </button>
 
                                 <span className="page-indicator">
-                                    Page {currentPage} of {totalPages}
+                                    Page {activePage} of {totalPages}
                                 </span>
 
                                 <button
                                     className="page-btn"
-                                    onClick={() => handlePageChange(currentPage + 1)}
-                                    disabled={currentPage === totalPages}
+                                    onClick={() => handlePageChange(activePage + 1)}
+                                    disabled={activePage === totalPages}
                                     title="Next page"
                                 >
                                     <FiChevronRight />

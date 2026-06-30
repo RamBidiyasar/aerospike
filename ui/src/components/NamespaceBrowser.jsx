@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiBarChart2, FiChevronDown, FiChevronRight, FiDatabase, FiFolder, FiLayers, FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { namespaceAPI } from '../services/api';
 import './NamespaceBrowser.css';
@@ -20,41 +20,7 @@ export const NamespaceBrowser = ({
     const [error, setError] = useState(null);
     const [filter, setFilter] = useState('');
 
-    useEffect(() => {
-        if (connectionStatus.connected) {
-            loadNamespaces();
-        } else {
-            setNamespaces([]);
-            setSets({});
-            setExpandedNamespaces({});
-            setFilter('');
-        }
-    }, [connectionStatus]);
-
-    const filteredNamespaces = useMemo(() => {
-        const query = filter.trim().toLowerCase();
-        if (!query) {
-            return namespaces;
-        }
-
-        return namespaces
-            .map(namespace => {
-                const namespaceMatches = namespace.name.toLowerCase().includes(query);
-                const visibleSets = (sets[namespace.name] || namespace.sets || [])
-                    .filter(set => set.setName.toLowerCase().includes(query));
-
-                if (namespaceMatches || visibleSets.length > 0) {
-                    return {
-                        ...namespace,
-                        sets: namespaceMatches ? (sets[namespace.name] || namespace.sets || []) : visibleSets,
-                    };
-                }
-                return null;
-            })
-            .filter(Boolean);
-    }, [filter, namespaces, sets]);
-
-    const loadNamespaces = async () => {
+    const loadNamespaces = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -86,7 +52,41 @@ export const NamespaceBrowser = ({
         } finally {
             setLoading(false);
         }
-    };
+    }, [onNamespacesLoad]);
+
+    useEffect(() => {
+        if (connectionStatus.connected) {
+            loadNamespaces();
+        } else {
+            setNamespaces([]);
+            setSets({});
+            setExpandedNamespaces({});
+            setFilter('');
+        }
+    }, [connectionStatus.connected, loadNamespaces]);
+
+    const filteredNamespaces = useMemo(() => {
+        const query = filter.trim().toLowerCase();
+        if (!query) {
+            return namespaces;
+        }
+
+        return namespaces
+            .map(namespace => {
+                const namespaceMatches = namespace.name.toLowerCase().includes(query);
+                const visibleSets = (sets[namespace.name] || namespace.sets || [])
+                    .filter(set => set.setName.toLowerCase().includes(query));
+
+                if (namespaceMatches || visibleSets.length > 0) {
+                    return {
+                        ...namespace,
+                        sets: namespaceMatches ? (sets[namespace.name] || namespace.sets || []) : visibleSets,
+                    };
+                }
+                return null;
+            })
+            .filter(Boolean);
+    }, [filter, namespaces, sets]);
 
     const toggleNamespace = async (namespace) => {
         const nsName = namespace.name;

@@ -1,18 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { FiCheckCircle, FiCode, FiSave, FiX, FiDatabase, FiKey, FiClock, FiPackage } from 'react-icons/fi';
 import './RecordEditor.css';
 
 export const RecordEditor = ({ record, onSave, onClose }) => {
-    const [formData, setFormData] = useState({
-        namespace: '',
-        setName: '',
-        key: '',
-        bins: {},
-        ttl: '',
-    });
-    const [binsJson, setBinsJson] = useState('{}');
-    const [error, setError] = useState(null);
-
     // Helper function to parse nested JSON strings
     const parseNestedJSON = (obj) => {
         if (typeof obj !== 'object' || obj === null) {
@@ -41,21 +31,15 @@ export const RecordEditor = ({ record, onSave, onClose }) => {
         return result;
     };
 
-    useEffect(() => {
-        if (record) {
-            setFormData({
-                namespace: record.namespace || '',
-                setName: record.setName || '',
-                key: record.key || '',
-                bins: record.bins || {},
-                ttl: record.ttl || '',
-            });
-
-            // Parse nested JSON for better display
-            const parsedBins = parseNestedJSON(record.bins || {});
-            setBinsJson(JSON.stringify(parsedBins, null, 2));
-        }
-    }, [record]);
+    const [formData, setFormData] = useState(() => ({
+        namespace: record?.namespace || '',
+        setName: record?.setName || '',
+        key: record?.key || '',
+        bins: record?.bins || {},
+        ttl: record?.ttl || '',
+    }));
+    const [binsJson, setBinsJson] = useState(() => JSON.stringify(parseNestedJSON(record?.bins || {}), null, 2));
+    const [error, setError] = useState(null);
 
     const handleSave = () => {
         setError(null);
