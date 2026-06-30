@@ -12,6 +12,8 @@ import { useAerospike } from './hooks/useAerospike';
 import { recordAPI } from './services/api';
 import './App.css';
 
+const ALL_SETS = '__ALL_SETS__';
+
 function App() {
   const {
     connectionStatus,
@@ -37,6 +39,23 @@ function App() {
     return saved ? parseInt(saved) : 500;
   });
 
+  const activeSetName = selectedSet === ALL_SETS ? null : selectedSet;
+  const isAllSetsSelected = selectedSet === ALL_SETS;
+  const tableContextLabel = selectedNamespace
+    ? isAllSetsSelected
+      ? `${selectedNamespace} / All sets`
+      : selectedSet
+        ? `${selectedNamespace} / ${selectedSet}`
+        : 'Records'
+    : 'Records';
+  const tableContextHint = selectedNamespace
+    ? isAllSetsSelected
+      ? 'Browsing a bounded sample across every set in this namespace.'
+      : selectedSet
+        ? 'Browsing and editing records in the selected set.'
+        : 'Pick all sets or a single set to browse records.'
+    : 'Connect to a cluster and select a scope to browse records.';
+
   // Persist editor width
   useEffect(() => {
     localStorage.setItem('editorWidth', editorWidth.toString());
@@ -58,6 +77,12 @@ function App() {
     updateRecords([]);
   };
 
+  const loadRecordsForScope = async (namespace, setScope) => {
+    const apiSetName = setScope === ALL_SETS ? null : setScope;
+    const response = await recordAPI.scanRecords(namespace, apiSetName, 100);
+    updateRecords(response.data);
+  };
+
   const handleSelectSet = async (namespace, setName) => {
     selectNamespace(namespace);
     selectSet(setName);
@@ -66,8 +91,24 @@ function App() {
     setError(null);
 
     try {
-      const response = await recordAPI.scanRecords(namespace, setName, 100);
-      updateRecords(response.data);
+      await loadRecordsForScope(namespace, setName);
+    } catch (err) {
+      setError(err.message);
+      updateRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectAllSets = async (namespace) => {
+    selectNamespace(namespace);
+    selectSet(ALL_SETS);
+    selectRecord(null);
+    setLoading(true);
+    setError(null);
+
+    try {
+      await loadRecordsForScope(namespace, ALL_SETS);
     } catch (err) {
       setError(err.message);
       updateRecords([]);
@@ -85,8 +126,7 @@ function App() {
 
       // Refresh records
       if (selectedNamespace && selectedSet) {
-        const response = await recordAPI.scanRecords(selectedNamespace, selectedSet, 100);
-        updateRecords(response.data);
+        await loadRecordsForScope(selectedNamespace, selectedSet);
       }
 
       selectRecord(null);
@@ -106,8 +146,7 @@ function App() {
 
       // Refresh records
       if (selectedNamespace && selectedSet) {
-        const response = await recordAPI.scanRecords(selectedNamespace, selectedSet, 100);
-        updateRecords(response.data);
+        await loadRecordsForScope(selectedNamespace, selectedSet);
       }
 
       if (selectedRecord === record) {
@@ -128,9 +167,8 @@ function App() {
       await recordAPI.putRecord(recordData);
 
       // Refresh records if we're viewing the same set
-      if (selectedNamespace === recordData.namespace && selectedSet === recordData.setName) {
-        const response = await recordAPI.scanRecords(recordData.namespace, recordData.setName, 100);
-        updateRecords(response.data);
+      if (selectedNamespace === recordData.namespace && (selectedSet === recordData.setName || selectedSet === ALL_SETS)) {
+        await loadRecordsForScope(selectedNamespace, selectedSet);
       }
     } catch (err) {
       setError(err.message);
@@ -139,7 +177,32 @@ function App() {
     }
   };
 
-  const handleSearch = async (searchPattern, searchType, clearSearch = false) => {
+  const handleReloadRecords = async () => {
+    if (!selectedNamespace || !selectedSet) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      await loadRecordsForScope(selectedNamespace, selectedSet);
+    } catch (err) {
+      setError(err.message);
+      updateRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = async ({
+    searchPattern,
+    searchType,
+    searchField,
+    caseSensitive,
+    maxResults,
+    clearSearch = false,
+  }) => {
     if (!selectedNamespace || !selectedSet) {
       return;
     }
@@ -149,17 +212,16 @@ function App() {
 
     try {
       if (clearSearch || !searchPattern.trim()) {
-        // Clear search - load all records
-        const response = await recordAPI.scanRecords(selectedNamespace, selectedSet, 100);
-        updateRecords(response.data);
+        await loadRecordsForScope(selectedNamespace, selectedSet);
       } else {
-        // Perform search
         const searchRequest = {
           namespace: selectedNamespace,
-          setName: selectedSet,
+          setName: activeSetName,
           searchPattern: searchPattern,
           searchType: searchType,
-          maxResults: 100
+          searchField,
+          caseSensitive,
+          maxResults,
         };
         const response = await recordAPI.searchRecords(searchRequest);
         updateRecords(response.data);
@@ -199,8 +261,10 @@ function App() {
               <NamespaceBrowser
                 connectionStatus={connectionStatus}
                 onSelectSet={handleSelectSet}
+                onSelectAllSets={handleSelectAllSets}
                 selectedNamespace={selectedNamespace}
                 selectedSet={selectedSet}
+                allSetsValue={ALL_SETS}
                 onNamespacesLoad={setAvailableNamespaces}
                 onSelectNamespace={handleSelectNamespace}
               />
@@ -215,6 +279,11 @@ function App() {
           </div>
 
           <div className="data-panel">
+            {error && (
+              <div className="global-error">
+                {error}
+              </div>
+            )}
             {selectedNamespace && !selectedSet ? (
               <NamespaceStats namespace={selectedNamespace} />
             ) : (
@@ -225,9 +294,12 @@ function App() {
                 selectedRecord={selectedRecord}
                 onAddRecord={() => setIsAddModalOpen(true)}
                 onSearch={handleSearch}
+                onReload={handleReloadRecords}
                 namespace={selectedNamespace}
-                setName={selectedSet}
+                setName={activeSetName}
                 isSearching={loading}
+                contextLabel={tableContextLabel}
+                contextHint={tableContextHint}
               />
             )}
           </div>
@@ -245,6 +317,7 @@ function App() {
                     maxWidth={800}
                   />
                   <RecordEditor
+                    key={`${selectedRecord.namespace}:${selectedRecord.setName}:${selectedRecord.key}`}
                     record={selectedRecord}
                     onSave={handleSaveRecord}
                     onClose={() => selectRecord(null)}
@@ -263,14 +336,16 @@ function App() {
         </div>
       </div>
 
-      <AddRecordModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSave={handleAddRecord}
-        selectedNamespace={selectedNamespace}
-        selectedSet={selectedSet}
-        availableNamespaces={availableNamespaces}
-      />
+      {isAddModalOpen && (
+        <AddRecordModal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          onSave={handleAddRecord}
+          selectedNamespace={selectedNamespace}
+          selectedSet={activeSetName}
+          availableNamespaces={availableNamespaces}
+        />
+      )}
     </div>
   );
 }

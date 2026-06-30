@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -22,6 +23,12 @@ public class AerospikeService {
 
     private AerospikeClient client;
     private final Map<String, Object> connectionMetadata = new ConcurrentHashMap<>();
+    private static final int DEFAULT_SCAN_LIMIT = 100;
+    private static final int MAX_SCAN_LIMIT = 1000;
+    private static final int DEFAULT_SEARCH_LIMIT = 100;
+    private static final int MAX_SEARCH_LIMIT = 500;
+    private static final int DEFAULT_SEARCH_SCAN_LIMIT = 5000;
+    private static final int MAX_SEARCH_SCAN_LIMIT = 20000;
 
     public ConnectionInfo connect(ConnectionRequest request) {
         try {
@@ -187,88 +194,63 @@ public class AerospikeService {
 
     public List<RecordData> scanRecords(String namespace, String setName, Integer maxRecords) {
         ensureConnected();
+        validateNamespace(namespace);
 
-        List<RecordData> records = new ArrayList<>();
+        List<RecordData> records = Collections.synchronizedList(new ArrayList<>());
         ScanPolicy scanPolicy = new ScanPolicy();
-        // 0 means no limit (fetch all records)
-        scanPolicy.maxRecords = maxRecords != null ? maxRecords : 0;
+        scanPolicy.maxRecords = clamp(maxRecords, DEFAULT_SCAN_LIMIT, 1, MAX_SCAN_LIMIT);
+        String normalizedSetName = normalizeSetName(setName);
 
         try {
-            client.scanAll(scanPolicy, namespace, setName, (key, record) -> {
-                RecordData recordData = RecordData.builder()
-                        .namespace(namespace)
-                        .setName(setName)
-                        .key(key.userKey != null ? key.userKey.getObject() : key.digest)
-                        .bins(record.bins)
-                        .generation(record.generation)
-                        .expiration(record.expiration)
-                        .ttl(record.getTimeToLive())
-                        .build();
-                records.add(recordData);
-            });
+            client.scanAll(scanPolicy, namespace, normalizedSetName, (key, record) -> records.add(toRecordData(key, record)));
 
             return records;
         } catch (Exception e) {
-            log.error("Failed to scan records from {}.{}", namespace, setName, e);
+            log.error("Failed to scan records from {}.{}", namespace, normalizedSetName, e);
             throw new RuntimeException("Failed to scan records: " + e.getMessage(), e);
         }
     }
 
     public List<RecordData> searchRecords(SearchRequest searchRequest) {
         ensureConnected();
+        if (searchRequest == null) {
+            throw new IllegalArgumentException("Search request is required");
+        }
+        validateNamespace(searchRequest.getNamespace());
 
-        List<RecordData> matchedRecords = new ArrayList<>();
+        List<RecordData> matchedRecords = Collections.synchronizedList(new ArrayList<>());
         ScanPolicy scanPolicy = new ScanPolicy();
-        // Scan more than needed to ensure we get enough matches
-        scanPolicy.maxRecords = searchRequest.getMaxResults() != null ? searchRequest.getMaxResults() * 10 : 1000;
+        int maxResults = clamp(searchRequest.getMaxResults(), DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
+        int maxScanRecords = clamp(searchRequest.getMaxScanRecords(), DEFAULT_SEARCH_SCAN_LIMIT, maxResults,
+                MAX_SEARCH_SCAN_LIMIT);
+        scanPolicy.maxRecords = maxScanRecords;
 
-        String pattern = searchRequest.getSearchPattern();
-        SearchRequest.SearchType searchType = searchRequest.getSearchType();
+        String pattern = searchRequest.getSearchPattern() != null ? searchRequest.getSearchPattern() : "";
+        SearchRequest.SearchType searchType = searchRequest.getSearchType() != null
+                ? searchRequest.getSearchType()
+                : SearchRequest.SearchType.CONTAINS;
+        SearchRequest.SearchField searchField = searchRequest.getSearchField() != null
+                ? searchRequest.getSearchField()
+                : SearchRequest.SearchField.ALL;
+        boolean caseSensitive = Boolean.TRUE.equals(searchRequest.getCaseSensitive());
+        String normalizedSetName = normalizeSetName(searchRequest.getSetName());
 
         try {
             client.scanAll(scanPolicy, searchRequest.getNamespace(),
-                    searchRequest.getSetName(), (key, record) -> {
-
-                        // Get the key as a string
-                        String keyStr = key.userKey != null ? key.userKey.getObject().toString()
-                                : Arrays.toString((byte[]) key.digest);
-
-                        // Check if the key matches the search pattern
-                        boolean matches = false;
-                        switch (searchType) {
-                            case EXACT:
-                                matches = keyStr.equals(pattern);
-                                break;
-                            case PREFIX:
-                                matches = keyStr.startsWith(pattern);
-                                break;
-                            case SUFFIX:
-                                matches = keyStr.endsWith(pattern);
-                                break;
-                            case CONTAINS:
-                                matches = keyStr.contains(pattern);
-                                break;
-                        }
-
-                        // If matches and we haven't reached the limit, add to results
-                        if (matches && matchedRecords.size() < searchRequest.getMaxResults()) {
-                            RecordData recordData = RecordData.builder()
-                                    .namespace(searchRequest.getNamespace())
-                                    .setName(searchRequest.getSetName())
-                                    .key(key.userKey != null ? key.userKey.getObject() : key.digest)
-                                    .bins(record.bins)
-                                    .generation(record.generation)
-                                    .expiration(record.expiration)
-                                    .ttl(record.getTimeToLive())
-                                    .build();
-                            matchedRecords.add(recordData);
+                    normalizedSetName, (key, record) -> {
+                        if (recordMatches(key, record, pattern, searchType, searchField, caseSensitive)) {
+                            synchronized (matchedRecords) {
+                                if (matchedRecords.size() < maxResults) {
+                                    matchedRecords.add(toRecordData(key, record));
+                                }
+                            }
                         }
                     });
 
             return matchedRecords;
         } catch (Exception e) {
             log.error("Failed to search records from {}.{} with pattern {}",
-                    searchRequest.getNamespace(), searchRequest.getSetName(), pattern, e);
+                    searchRequest.getNamespace(), normalizedSetName, pattern, e);
             throw new RuntimeException("Failed to search records: " + e.getMessage(), e);
         }
     }
@@ -340,6 +322,90 @@ public class AerospikeService {
         if (client == null || !client.isConnected()) {
             throw new RuntimeException("Not connected to Aerospike. Please connect first.");
         }
+    }
+
+    private void validateNamespace(String namespace) {
+        if (namespace == null || namespace.isBlank()) {
+            throw new IllegalArgumentException("Namespace is required");
+        }
+    }
+
+    private String normalizeSetName(String setName) {
+        if (setName == null || setName.isBlank() || "ALL".equalsIgnoreCase(setName) || "*".equals(setName)) {
+            return null;
+        }
+        return setName;
+    }
+
+    private int clamp(Integer value, int defaultValue, int min, int max) {
+        int resolved = value != null ? value : defaultValue;
+        return Math.max(min, Math.min(max, resolved));
+    }
+
+    private RecordData toRecordData(Key key, com.aerospike.client.Record record) {
+        return RecordData.builder()
+                .namespace(key.namespace)
+                .setName(key.setName)
+                .key(key.userKey != null ? key.userKey.getObject() : key.digest)
+                .bins(record.bins)
+                .generation(record.generation)
+                .expiration(record.expiration)
+                .ttl(record.getTimeToLive())
+                .build();
+    }
+
+    private boolean recordMatches(
+            Key key,
+            com.aerospike.client.Record record,
+            String pattern,
+            SearchRequest.SearchType searchType,
+            SearchRequest.SearchField searchField,
+            boolean caseSensitive) {
+        if (pattern == null || pattern.isBlank()) {
+            return true;
+        }
+
+        Stream<String> searchableValues = switch (searchField) {
+            case KEY -> Stream.of(formatKey(key));
+            case BIN_NAME -> record.bins == null ? Stream.empty() : record.bins.keySet().stream();
+            case BIN_VALUE -> record.bins == null ? Stream.empty()
+                    : record.bins.values().stream().map(this::stringifyValue);
+            case ALL -> Stream.concat(
+                    Stream.of(formatKey(key), key.namespace, key.setName),
+                    record.bins == null ? Stream.empty()
+                            : Stream.concat(record.bins.keySet().stream(),
+                                    record.bins.values().stream().map(this::stringifyValue)));
+        };
+
+        return searchableValues
+                .filter(Objects::nonNull)
+                .anyMatch(value -> textMatches(value, pattern, searchType, caseSensitive));
+    }
+
+    private String formatKey(Key key) {
+        return key.userKey != null ? String.valueOf(key.userKey.getObject()) : Arrays.toString(key.digest);
+    }
+
+    private String stringifyValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof byte[] bytes) {
+            return Arrays.toString(bytes);
+        }
+        return String.valueOf(value);
+    }
+
+    private boolean textMatches(String value, String pattern, SearchRequest.SearchType searchType, boolean caseSensitive) {
+        String haystack = caseSensitive ? value : value.toLowerCase(Locale.ROOT);
+        String needle = caseSensitive ? pattern : pattern.toLowerCase(Locale.ROOT);
+
+        return switch (searchType) {
+            case EXACT -> haystack.equals(needle);
+            case PREFIX -> haystack.startsWith(needle);
+            case SUFFIX -> haystack.endsWith(needle);
+            case CONTAINS -> haystack.contains(needle);
+        };
     }
 
     private Map<String, Object> parseInfoString(String infoStr) {

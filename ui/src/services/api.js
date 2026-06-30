@@ -10,6 +10,8 @@ const apiClient = axios.create({
     withCredentials: true,
 });
 
+const encodePathSegment = (value) => encodeURIComponent(String(value));
+
 // Connection API
 export const connectionAPI = {
     connect: (host, port, username, password) =>
@@ -33,22 +35,25 @@ export const namespaceAPI = {
 
 // Record API
 export const recordAPI = {
-    scanRecords: (namespace, setName, maxRecords = 100) =>
-        apiClient.get('/records/scan', {
-            params: { namespace, setName, maxRecords },
-        }),
+    scanRecords: (namespace, setName, maxRecords = 100) => {
+        const params = { namespace, maxRecords };
+        if (setName) {
+            params.setName = setName;
+        }
+        return apiClient.get('/records/scan', { params });
+    },
 
     searchRecords: (searchRequest) =>
         apiClient.post('/records/search', searchRequest),
 
     getRecord: (namespace, setName, key) =>
-        apiClient.get(`/records/${namespace}/${setName}/${key}`),
+        apiClient.get(`/records/${encodePathSegment(namespace)}/${encodePathSegment(setName)}/${encodePathSegment(key)}`),
 
     putRecord: (recordData) =>
         apiClient.post('/records', recordData),
 
     deleteRecord: (namespace, setName, key) =>
-        apiClient.delete(`/records/${namespace}/${setName}/${key}`),
+        apiClient.delete(`/records/${encodePathSegment(namespace)}/${encodePathSegment(setName)}/${encodePathSegment(key)}`),
 };
 
 // Error interceptor
