@@ -110,10 +110,13 @@
 }
 
 .editor-panel {
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
   background: var(--color-bg-secondary);
   backdrop-filter: blur(20px) saturate(180%);
-  overflow-y: auto;
+  overflow: hidden;
   position: relative;
   transition: width var(--transition-base), margin var(--transition-base);
   box-shadow: var(--shadow-sm);
