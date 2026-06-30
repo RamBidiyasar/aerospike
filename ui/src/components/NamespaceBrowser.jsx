@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
-import { FiFolder, FiDatabase, FiChevronRight, FiChevronDown, FiRefreshCw } from 'react-icons/fi';
+import { useEffect, useMemo, useState } from 'react';
+import { FiBarChart2, FiChevronDown, FiChevronRight, FiDatabase, FiFolder, FiLayers, FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { namespaceAPI } from '../services/api';
 import './NamespaceBrowser.css';
 
 export const NamespaceBrowser = ({
     connectionStatus,
     onSelectSet,
+    onSelectAllSets,
     selectedNamespace,
     selectedSet,
+    allSetsValue,
     onNamespacesLoad,
     onSelectNamespace
 }) => {
@@ -16,6 +18,7 @@ export const NamespaceBrowser = ({
     const [sets, setSets] = useState({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [filter, setFilter] = useState('');
 
     useEffect(() => {
         if (connectionStatus.connected) {
@@ -24,8 +27,32 @@ export const NamespaceBrowser = ({
             setNamespaces([]);
             setSets({});
             setExpandedNamespaces({});
+            setFilter('');
         }
     }, [connectionStatus]);
+
+    const filteredNamespaces = useMemo(() => {
+        const query = filter.trim().toLowerCase();
+        if (!query) {
+            return namespaces;
+        }
+
+        return namespaces
+            .map(namespace => {
+                const namespaceMatches = namespace.name.toLowerCase().includes(query);
+                const visibleSets = (sets[namespace.name] || namespace.sets || [])
+                    .filter(set => set.setName.toLowerCase().includes(query));
+
+                if (namespaceMatches || visibleSets.length > 0) {
+                    return {
+                        ...namespace,
+                        sets: namespaceMatches ? (sets[namespace.name] || namespace.sets || []) : visibleSets,
+                    };
+                }
+                return null;
+            })
+            .filter(Boolean);
+    }, [filter, namespaces, sets]);
 
     const loadNamespaces = async () => {
         setLoading(true);
@@ -38,14 +65,19 @@ export const NamespaceBrowser = ({
                         const setsResponse = await namespaceAPI.getSets(ns.name);
                         return { ...ns, sets: setsResponse.data };
                     } catch (err) {
-                        // If fetching sets for a specific namespace fails, return it without sets
                         console.error(`Failed to load sets for namespace ${ns.name}:`, err);
                         return { ...ns, sets: [] };
                     }
                 })
             );
 
+            const setsByNamespace = namespacesWithSets.reduce((acc, ns) => {
+                acc[ns.name] = ns.sets || [];
+                return acc;
+            }, {});
+
             setNamespaces(namespacesWithSets);
+            setSets(setsByNamespace);
             if (onNamespacesLoad) {
                 onNamespacesLoad(namespacesWithSets);
             }
@@ -73,6 +105,20 @@ export const NamespaceBrowser = ({
         setExpandedNamespaces(prev => ({ ...prev, [nsName]: !isExpanded }));
     };
 
+    const handleNamespaceClick = (namespace) => {
+        toggleNamespace(namespace);
+        if (onSelectNamespace) {
+            onSelectNamespace(namespace.name);
+        }
+    };
+
+    const handleAllSetsClick = (namespaceName) => {
+        if (onSelectAllSets) {
+            onSelectAllSets(namespaceName);
+        }
+        setExpandedNamespaces(prev => ({ ...prev, [namespaceName]: true }));
+    };
+
     const handleSetClick = (namespace, set) => {
         onSelectSet(namespace, set);
     };
@@ -85,7 +131,7 @@ export const NamespaceBrowser = ({
                 </div>
                 <div className="empty-state">
                     <FiDatabase size={48} />
-                    <p>Connect to Aerospike to browse databases</p>
+                    <p>Connect to Aerospike to browse namespaces and sets</p>
                 </div>
             </div>
         );
@@ -94,10 +140,23 @@ export const NamespaceBrowser = ({
     return (
         <div className="namespace-browser">
             <div className="browser-header">
-                <h3>Database Browser</h3>
+                <div>
+                    <h3>Database Browser</h3>
+                    <span>{namespaces.length} namespaces</span>
+                </div>
                 <button className="refresh-btn" onClick={loadNamespaces} disabled={loading}>
                     <FiRefreshCw className={loading ? 'spinning' : ''} />
                 </button>
+            </div>
+
+            <div className="browser-filter">
+                <FiSearch />
+                <input
+                    type="text"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filter namespaces or sets..."
+                />
             </div>
 
             {error && (
@@ -107,58 +166,87 @@ export const NamespaceBrowser = ({
             )}
 
             <div className="namespace-list">
-                {namespaces.map((namespace) => (
-                    <div key={namespace.name} className="namespace-item">
-                        <div
-                            className={`namespace-header ${selectedNamespace === namespace.name && !selectedSet ? 'selected' : ''}`}
-                            onClick={() => {
-                                toggleNamespace(namespace);
-                                if (onSelectNamespace) {
-                                    onSelectNamespace(namespace.name);
-                                }
-                            }}
-                        >
-                            <div className="namespace-info">
-                                {expandedNamespaces[namespace.name] ? (
-                                    <FiChevronDown className="chevron" />
-                                ) : (
-                                    <FiChevronRight className="chevron" />
-                                )}
-                                <FiFolder className="folder-icon" />
-                                <span className="namespace-name">{namespace.name}</span>
-                            </div>
-                            <span className="object-count">
-                                {namespace.masterObjects?.toLocaleString() || 0}
-                            </span>
-                        </div>
+                {filteredNamespaces.map((namespace) => {
+                    const namespaceSets = sets[namespace.name] || namespace.sets || [];
+                    const isExpanded = expandedNamespaces[namespace.name] || Boolean(filter.trim());
+                    const isNamespaceSelected = selectedNamespace === namespace.name && !selectedSet;
+                    const isAllSetsSelected = selectedNamespace === namespace.name && selectedSet === allSetsValue;
 
-                        {expandedNamespaces[namespace.name] && (
-                            <div className="sets-list fade-in">
-                                {sets[namespace.name]?.length > 0 ? (
-                                    sets[namespace.name].map((set) => (
-                                        <div
-                                            key={set.setName}
-                                            className={`set-item ${selectedNamespace === namespace.name &&
-                                                selectedSet === set.setName ? 'selected' : ''
-                                                }`}
-                                            onClick={() => handleSetClick(namespace.name, set.setName)}
-                                        >
-                                            <div className="set-info">
-                                                <FiDatabase className="set-icon" />
-                                                <span className="set-name">{set.setName}</span>
-                                            </div>
-                                            <span className="set-count">
-                                                {set.objectCount?.toLocaleString() || 0}
-                                            </span>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="empty-sets">No sets found</div>
-                                )}
+                    return (
+                        <div key={namespace.name} className="namespace-item">
+                            <div
+                                className={`namespace-header ${isNamespaceSelected ? 'selected' : ''}`}
+                                onClick={() => handleNamespaceClick(namespace)}
+                            >
+                                <div className="namespace-info">
+                                    {isExpanded ? (
+                                        <FiChevronDown className="chevron" />
+                                    ) : (
+                                        <FiChevronRight className="chevron" />
+                                    )}
+                                    <FiFolder className="folder-icon" />
+                                    <div className="namespace-label">
+                                        <span className="namespace-name">{namespace.name}</span>
+                                        <span className="namespace-subtitle">Namespace details</span>
+                                    </div>
+                                </div>
+                                <span className="object-count">
+                                    {namespace.masterObjects?.toLocaleString() || 0}
+                                </span>
                             </div>
-                        )}
-                    </div>
-                ))}
+
+                            {isExpanded && (
+                                <div className="sets-list fade-in">
+                                    <div
+                                        className={`set-item all-sets-item ${isAllSetsSelected ? 'selected' : ''}`}
+                                        onClick={() => handleAllSetsClick(namespace.name)}
+                                    >
+                                        <div className="set-info">
+                                            <FiLayers className="set-icon" />
+                                            <span className="set-name">All sets</span>
+                                        </div>
+                                        <span className="set-count">
+                                            {namespaceSets.length.toLocaleString()}
+                                        </span>
+                                    </div>
+
+                                    <div
+                                        className={`set-item namespace-summary-item ${isNamespaceSelected ? 'selected' : ''}`}
+                                        onClick={() => onSelectNamespace?.(namespace.name)}
+                                    >
+                                        <div className="set-info">
+                                            <FiBarChart2 className="set-icon" />
+                                            <span className="set-name">Only namespace</span>
+                                        </div>
+                                        <span className="set-count">stats</span>
+                                    </div>
+
+                                    {namespaceSets.length > 0 ? (
+                                        namespaceSets.map((set) => (
+                                            <div
+                                                key={set.setName}
+                                                className={`set-item ${selectedNamespace === namespace.name &&
+                                                    selectedSet === set.setName ? 'selected' : ''
+                                                    }`}
+                                                onClick={() => handleSetClick(namespace.name, set.setName)}
+                                            >
+                                                <div className="set-info">
+                                                    <FiDatabase className="set-icon" />
+                                                    <span className="set-name">{set.setName}</span>
+                                                </div>
+                                                <span className="set-count">
+                                                    {set.objectCount?.toLocaleString() || 0}
+                                                </span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="empty-sets">No sets found</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

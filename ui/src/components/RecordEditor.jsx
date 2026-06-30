@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FiSave, FiX, FiDatabase, FiKey, FiClock, FiPackage } from 'react-icons/fi';
+import { FiCheckCircle, FiCode, FiSave, FiX, FiDatabase, FiKey, FiClock, FiPackage } from 'react-icons/fi';
 import './RecordEditor.css';
 
 export const RecordEditor = ({ record, onSave, onClose }) => {
@@ -72,6 +72,16 @@ export const RecordEditor = ({ record, onSave, onClose }) => {
             };
 
             onSave(recordData);
+        } catch (err) {
+            setError('Invalid JSON format for bins: ' + err.message);
+        }
+    };
+
+    const handleFormatJson = () => {
+        setError(null);
+        try {
+            const bins = JSON.parse(binsJson);
+            setBinsJson(JSON.stringify(bins, null, 2));
         } catch (err) {
             setError('Invalid JSON format for bins: ' + err.message);
         }
@@ -189,7 +199,10 @@ export const RecordEditor = ({ record, onSave, onClose }) => {
                     <div className="card-header">
                         <FiPackage className="card-icon" />
                         <h4>Bins (JSON)</h4>
-                        <span className="card-badge">Editable</span>
+                        <button className="card-action-btn" onClick={handleFormatJson} type="button">
+                            <FiCode /> Format
+                        </button>
+                        <span className="card-badge"><FiCheckCircle /> Editable</span>
                     </div>
                     <div className="card-content">
                         <textarea

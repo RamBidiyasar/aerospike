@@ -138,6 +138,29 @@
     border-radius: var(--radius-md);
     font-size: var(--font-size-xs);
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.card-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-md);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--color-text-light);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    transition: all var(--transition-fast);
+}
+
+.card-action-btn:hover {
+    background: rgba(255, 255, 255, 0.24);
+    transform: translateY(-1px);
 }
 
 .card-content {

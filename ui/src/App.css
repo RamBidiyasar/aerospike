@@ -89,6 +89,16 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary);
+}
+
+.data-panel>.data-table-container,
+.data-panel>.namespace-stats {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .content-area {
@@ -160,6 +170,7 @@
   font-size: var(--font-size-sm);
   font-weight: 500;
   box-shadow: var(--shadow-md);
+  flex-shrink: 0;
 }
 
 .loading-overlay {

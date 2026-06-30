@@ -20,7 +20,7 @@ public class RecordController {
     @GetMapping("/scan")
     public ResponseEntity<List<RecordData>> scanRecords(
             @RequestParam String namespace,
-            @RequestParam String setName,
+            @RequestParam(required = false) String setName,
             @RequestParam(required = false, defaultValue = "100") Integer maxRecords) {
         List<RecordData> records = aerospikeService.scanRecords(namespace, setName, maxRecords);
         return ResponseEntity.ok(records);
