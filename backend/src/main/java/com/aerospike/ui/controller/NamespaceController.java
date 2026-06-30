@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -26,5 +27,13 @@ public class NamespaceController {
     public ResponseEntity<List<SetInfo>> getSets(@PathVariable String namespace) {
         List<SetInfo> sets = aerospikeService.getSets(namespace);
         return ResponseEntity.ok(sets);
+    }
+
+    @DeleteMapping("/namespaces/{namespace}/sets/{setName}")
+    public ResponseEntity<Map<String, Boolean>> deleteSet(
+            @PathVariable String namespace,
+            @PathVariable String setName) {
+        aerospikeService.deleteSet(namespace, setName);
+        return ResponseEntity.ok(Map.of("deleted", true));
     }
 }

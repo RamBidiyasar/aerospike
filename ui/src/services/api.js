@@ -30,7 +30,10 @@ export const namespaceAPI = {
         apiClient.get('/namespaces'),
 
     getSets: (namespace) =>
-        apiClient.get(`/namespaces/${namespace}/sets`),
+        apiClient.get(`/namespaces/${encodePathSegment(namespace)}/sets`),
+
+    deleteSet: (namespace, setName) =>
+        apiClient.delete(`/namespaces/${encodePathSegment(namespace)}/sets/${encodePathSegment(setName)}`),
 };
 
 // Record API

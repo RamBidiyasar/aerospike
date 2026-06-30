@@ -9,7 +9,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { ResizeHandle } from './components/ResizeHandle';
 import { NamespaceStats } from './components/NamespaceStats';
 import { useAerospike } from './hooks/useAerospike';
-import { recordAPI } from './services/api';
+import { namespaceAPI, recordAPI } from './services/api';
 import './App.css';
 
 const ALL_SETS = '__ALL_SETS__';
@@ -177,6 +177,31 @@ function App() {
     }
   };
 
+  const handleDeleteSet = async (namespace, setName) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await namespaceAPI.deleteSet(namespace, setName);
+
+      if (selectedNamespace === namespace && selectedSet === setName) {
+        selectNamespace(namespace);
+        updateRecords([]);
+        selectRecord(null);
+      } else if (selectedNamespace === namespace && selectedSet === ALL_SETS) {
+        await loadRecordsForScope(namespace, ALL_SETS);
+        selectRecord(null);
+      } else if (selectedRecord?.namespace === namespace && selectedRecord?.setName === setName) {
+        selectRecord(null);
+      }
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleReloadRecords = async () => {
     if (!selectedNamespace || !selectedSet) {
       return;
@@ -267,6 +292,7 @@ function App() {
                 allSetsValue={ALL_SETS}
                 onNamespacesLoad={setAvailableNamespaces}
                 onSelectNamespace={handleSelectNamespace}
+                onDeleteSet={handleDeleteSet}
               />
             )}
             <button

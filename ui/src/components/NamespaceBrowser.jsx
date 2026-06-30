@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiBarChart2, FiChevronDown, FiChevronRight, FiDatabase, FiFolder, FiLayers, FiRefreshCw, FiSearch } from 'react-icons/fi';
+import { FiBarChart2, FiChevronDown, FiChevronRight, FiDatabase, FiFolder, FiLayers, FiRefreshCw, FiSearch, FiTrash2 } from 'react-icons/fi';
 import { namespaceAPI } from '../services/api';
 import './NamespaceBrowser.css';
 
@@ -11,12 +11,14 @@ export const NamespaceBrowser = ({
     selectedSet,
     allSetsValue,
     onNamespacesLoad,
-    onSelectNamespace
+    onSelectNamespace,
+    onDeleteSet
 }) => {
     const [namespaces, setNamespaces] = useState([]);
     const [expandedNamespaces, setExpandedNamespaces] = useState({});
     const [sets, setSets] = useState({});
     const [loading, setLoading] = useState(false);
+    const [deletingSet, setDeletingSet] = useState(null);
     const [error, setError] = useState(null);
     const [filter, setFilter] = useState('');
 
@@ -121,6 +123,34 @@ export const NamespaceBrowser = ({
 
     const handleSetClick = (namespace, set) => {
         onSelectSet(namespace, set);
+    };
+
+    const handleDeleteSetClick = async (event, namespaceName, setName) => {
+        event.stopPropagation();
+        if (!onDeleteSet) {
+            return;
+        }
+
+        const typedSetName = window.prompt(
+            `Delete all records in ${namespaceName}.${setName}?\n\nThis cannot be undone. Type the set name to confirm:`
+        );
+
+        if (typedSetName !== setName) {
+            return;
+        }
+
+        const deleteKey = `${namespaceName}:${setName}`;
+        setDeletingSet(deleteKey);
+        setError(null);
+
+        try {
+            await onDeleteSet(namespaceName, setName);
+            await loadNamespaces();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setDeletingSet(null);
+        }
     };
 
     if (!connectionStatus.connected) {
@@ -234,9 +264,19 @@ export const NamespaceBrowser = ({
                                                     <FiDatabase className="set-icon" />
                                                     <span className="set-name">{set.setName}</span>
                                                 </div>
-                                                <span className="set-count">
-                                                    {set.objectCount?.toLocaleString() || 0}
-                                                </span>
+                                                <div className="set-actions">
+                                                    <span className="set-count">
+                                                        {set.objectCount?.toLocaleString() || 0}
+                                                    </span>
+                                                    <button
+                                                        className="set-delete-btn"
+                                                        disabled={deletingSet === `${namespace.name}:${set.setName}`}
+                                                        onClick={(event) => handleDeleteSetClick(event, namespace.name, set.setName)}
+                                                        title={`Delete set ${set.setName}`}
+                                                    >
+                                                        <FiTrash2 />
+                                                    </button>
+                                                </div>
                                             </div>
                                         ))
                                     ) : (
