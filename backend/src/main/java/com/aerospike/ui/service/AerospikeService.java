@@ -150,6 +150,7 @@ public class AerospikeService {
 
     public List<SetInfo> getSets(String namespace) {
         ensureConnected();
+        validateNamespace(namespace);
 
         try {
             Node[] nodes = client.getNodes();
@@ -189,6 +190,20 @@ public class AerospikeService {
         } catch (Exception e) {
             log.error("Failed to get sets for namespace: {}", namespace, e);
             throw new RuntimeException("Failed to get sets: " + e.getMessage(), e);
+        }
+    }
+
+    public void deleteSet(String namespace, String setName) {
+        ensureConnected();
+        validateNamespace(namespace);
+        validateConcreteSetName(setName);
+
+        try {
+            client.truncate(null, namespace, setName, null);
+            log.info("Requested truncate for set {}.{}", namespace, setName);
+        } catch (Exception e) {
+            log.error("Failed to delete set {}.{}", namespace, setName, e);
+            throw new RuntimeException("Failed to delete set: " + e.getMessage(), e);
         }
     }
 
@@ -327,6 +342,15 @@ public class AerospikeService {
     private void validateNamespace(String namespace) {
         if (namespace == null || namespace.isBlank()) {
             throw new IllegalArgumentException("Namespace is required");
+        }
+    }
+
+    private void validateConcreteSetName(String setName) {
+        if (setName == null || setName.isBlank()) {
+            throw new IllegalArgumentException("Set name is required");
+        }
+        if ("ALL".equalsIgnoreCase(setName) || "*".equals(setName)) {
+            throw new IllegalArgumentException("Deleting all sets from a namespace is not supported");
         }
     }
 
