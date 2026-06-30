@@ -1,5 +1,7 @@
 .record-editor {
     height: 100%;
+    width: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background:
@@ -118,7 +120,9 @@
     flex: 1;
     min-height: 0;
     padding: var(--spacing-lg);
+    padding-bottom: calc(var(--spacing-lg) * 2);
     overflow-y: auto;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
@@ -177,6 +181,7 @@
 }
 
 .editor-panel-card {
+    flex-shrink: 0;
     overflow: hidden;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
@@ -389,12 +394,24 @@
     justify-content: flex-end;
 }
 
+.json-editor-card {
+    display: flex;
+    flex-direction: column;
+    min-height: min(520px, calc(100vh - 220px));
+}
+
+.json-editor-card .panel-card-header {
+    flex-shrink: 0;
+}
+
 .bins-editor {
     width: calc(100% - (var(--spacing-lg) * 2));
-    min-height: 320px;
+    height: clamp(260px, 42vh, 520px);
+    min-height: 260px;
     margin: var(--spacing-lg);
     padding: var(--spacing-md);
-    resize: vertical;
+    resize: none;
+    overflow: auto;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     color: var(--color-text-primary);
@@ -407,6 +424,7 @@
     line-height: 1.65;
     tab-size: 2;
     transition: all var(--transition-fast);
+    flex: 1;
 }
 
 .bins-editor:focus {
