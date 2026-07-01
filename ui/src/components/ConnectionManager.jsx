@@ -8,10 +8,13 @@ import './ConnectionManager.css';
 export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
     const [isOpen, setIsOpen] = useState(!connectionStatus.connected);
     const [formData, setFormData] = useState({
-        host: '10.249.218.92',
+        host: 'localhost',
         port: '3000',
-        username: 'appuser',
-        password: 'm}0"Uiu27`zX',
+        username: '',
+        password: '',
+        timeout: '5000',
+        maxRetries: '0',
+        maxConnsPerNode: '64',
     });
     const [connecting, setConnecting] = useState(false);
     const [error, setError] = useState(null);
@@ -19,10 +22,13 @@ export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
 
     const loadProfile = (profile) => {
         setFormData({
-            host: profile.host,
+            host: profile.host || (profile.hosts || []).join(', '),
             port: profile.port.toString(),
             username: profile.username || '',
             password: profile.password || '',
+            timeout: String(profile.timeout || '5000'),
+            maxRetries: String(profile.maxRetries || '0'),
+            maxConnsPerNode: String(profile.maxConnsPerNode || '64'),
         });
         setCurrentProfile(profile);
     };
@@ -33,12 +39,21 @@ export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
         setError(null);
 
         try {
-            const response = await connectionAPI.connect(
-                formData.host,
-                parseInt(formData.port),
-                formData.username || undefined,
-                formData.password || undefined
-            );
+            const seedHosts = formData.host
+                .split(',')
+                .map(host => host.trim())
+                .filter(Boolean);
+
+            const response = await connectionAPI.connect({
+                host: seedHosts[0],
+                hosts: seedHosts,
+                port: parseInt(formData.port),
+                username: formData.username || undefined,
+                password: formData.password || undefined,
+                timeout: parseInt(formData.timeout),
+                maxRetries: parseInt(formData.maxRetries),
+                maxConnsPerNode: parseInt(formData.maxConnsPerNode),
+            });
 
             if (response.data.connected) {
                 onConnectionChange(response.data);
@@ -70,9 +85,13 @@ export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
                 const profile = {
                     name: profileName,
                     host: formData.host,
+                    hosts: formData.host.split(',').map(host => host.trim()).filter(Boolean),
                     port: parseInt(formData.port),
                     username: formData.username,
                     password: formData.password,
+                    timeout: parseInt(formData.timeout),
+                    maxRetries: parseInt(formData.maxRetries),
+                    maxConnsPerNode: parseInt(formData.maxConnsPerNode),
                 };
                 profileStorage.saveProfile(profile);
                 alert('Connection profile saved successfully!');
@@ -136,16 +155,16 @@ export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
                 <div className="connection-form-container fade-in">
                     <form onSubmit={handleConnect} className="connection-form">
                         <div className="form-group">
-                            <label htmlFor="host">Host</label>
-                            <input
-                                type="text"
+                            <label htmlFor="host">Seed Hosts</label>
+                            <textarea
                                 id="host"
                                 value={formData.host}
                                 onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                                placeholder="10.249.218.92"
+                                placeholder="host1:3000, host2:3000, host3:3000"
                                 disabled={connectionStatus.connected}
                                 required
                             />
+                            <small>Use one or more comma-separated Aerospike seed hosts.</small>
                         </div>
 
                         <div className="form-group">
@@ -183,6 +202,39 @@ export const ConnectionManager = ({ onConnectionChange, connectionStatus }) => {
                                 placeholder="••••••••"
                                 disabled={connectionStatus.connected}
                             />
+                        </div>
+
+                        <div className="connection-policy-grid">
+                            <div className="form-group">
+                                <label htmlFor="timeout">Timeout ms</label>
+                                <input
+                                    type="number"
+                                    id="timeout"
+                                    value={formData.timeout}
+                                    onChange={(e) => setFormData({ ...formData, timeout: e.target.value })}
+                                    disabled={connectionStatus.connected}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label htmlFor="maxRetries">Max retries</label>
+                                <input
+                                    type="number"
+                                    id="maxRetries"
+                                    value={formData.maxRetries}
+                                    onChange={(e) => setFormData({ ...formData, maxRetries: e.target.value })}
+                                    disabled={connectionStatus.connected}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label htmlFor="maxConnsPerNode">Max conns/node</label>
+                                <input
+                                    type="number"
+                                    id="maxConnsPerNode"
+                                    value={formData.maxConnsPerNode}
+                                    onChange={(e) => setFormData({ ...formData, maxConnsPerNode: e.target.value })}
+                                    disabled={connectionStatus.connected}
+                                />
+                            </div>
                         </div>
 
                         {error && (

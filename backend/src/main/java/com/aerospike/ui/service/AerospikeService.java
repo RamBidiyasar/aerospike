@@ -37,25 +37,31 @@ public class AerospikeService {
                 client.close();
             }
 
-            String host = request.getHost() != null ? request.getHost() : "localhost";
-            Integer port = request.getPort() != null ? request.getPort() : 3000;
-
             ClientPolicy policy = new ClientPolicy();
             if (request.getUsername() != null && request.getPassword() != null) {
                 policy.user = request.getUsername();
                 policy.password = request.getPassword();
             }
+            if (request.getTimeout() != null) {
+                policy.timeout = request.getTimeout();
+            }
+            if (request.getMaxConnsPerNode() != null) {
+                policy.maxConnsPerNode = request.getMaxConnsPerNode();
+            }
 
-            Host[] hosts = new Host[] { new Host(host, port) };
+            Host[] hosts = resolveHosts(request);
             client = new AerospikeClient(policy, hosts);
 
             // Store connection info
-            connectionMetadata.put("host", host);
-            connectionMetadata.put("port", port);
+            connectionMetadata.put("hosts", Arrays.stream(hosts).map(Host::toString).toList());
+            connectionMetadata.put("timeout", policy.timeout);
+            connectionMetadata.put("maxConnsPerNode", policy.maxConnsPerNode);
+            if (request.getMaxRetries() != null) {
+                connectionMetadata.put("maxRetries", request.getMaxRetries());
+            }
 
             return getConnectionInfo();
         } catch (Exception e) {
-            System.out.println(e.getMessage());
             log.error("Failed to connect to Aerospike", e);
             return ConnectionInfo.builder()
                     .connected(false)
@@ -77,10 +83,15 @@ public class AerospikeService {
             List<NodeInfo> nodeInfoList = new ArrayList<>();
 
             for (Node node : nodes) {
+                Map<String, Object> statistics = requestInfoMap(node, "statistics");
                 nodeInfoList.add(NodeInfo.builder()
                         .name(node.getName())
                         .address(node.getHost().toString())
                         .active(node.isActive())
+                        .build(requestInfo(node, "build"))
+                        .edition(requestInfo(node, "edition"))
+                        .uptimeSeconds(parseLong(statistics.get("uptime")))
+                        .statistics(statistics)
                         .build());
             }
 
@@ -109,6 +120,53 @@ public class AerospikeService {
             connectionMetadata.clear();
             log.info("Disconnected from Aerospike");
         }
+    }
+
+    public ClusterOverview getClusterOverview() {
+        ensureConnected();
+
+        ConnectionInfo connectionInfo = getConnectionInfo();
+        List<NamespaceInfo> namespaces = getNamespaces();
+        List<SetInfo> allSets = new ArrayList<>();
+
+        for (NamespaceInfo namespace : namespaces) {
+            try {
+                allSets.addAll(getSets(namespace.getName()));
+            } catch (Exception e) {
+                log.warn("Skipping set summary for namespace {}", namespace.getName(), e);
+            }
+        }
+
+        Long setObjectTotal = allSets.stream()
+                .map(SetInfo::getObjectCount)
+                .filter(Objects::nonNull)
+                .reduce(0L, Long::sum);
+        Long namespaceObjectTotal = namespaces.stream()
+                .map(NamespaceInfo::getMasterObjects)
+                .filter(Objects::nonNull)
+                .reduce(0L, Long::sum);
+
+        return ClusterOverview.builder()
+                .connection(connectionInfo)
+                .nodeCount(connectionInfo.getNodes() == null ? 0 : connectionInfo.getNodes().size())
+                .activeNodeCount(connectionInfo.getNodes() == null ? 0
+                        : (int) connectionInfo.getNodes().stream().filter(NodeInfo::isActive).count())
+                .namespaceCount(namespaces.size())
+                .setCount(allSets.size())
+                .totalObjects(setObjectTotal > 0 ? setObjectTotal : namespaceObjectTotal)
+                .totalMemoryDataBytes(allSets.stream()
+                        .map(SetInfo::getMemoryDataBytes)
+                        .filter(Objects::nonNull)
+                        .reduce(0L, Long::sum))
+                .totalDeviceDataBytes(allSets.stream()
+                        .map(SetInfo::getDeviceDataBytes)
+                        .filter(Objects::nonNull)
+                        .reduce(0L, Long::sum))
+                .namespaces(namespaces)
+                .sets(allSets)
+                .nodes(connectionInfo.getNodes())
+                .clusterStatistics(mergeNodeStatistics(connectionInfo.getNodes()))
+                .build();
     }
 
     public List<NamespaceInfo> getNamespaces() {
@@ -190,6 +248,160 @@ public class AerospikeService {
         } catch (Exception e) {
             log.error("Failed to get sets for namespace: {}", namespace, e);
             throw new RuntimeException("Failed to get sets: " + e.getMessage(), e);
+        }
+    }
+
+    public List<AerospikeIndexInfo> getSecondaryIndexes(String namespace, String setName) {
+        ensureConnected();
+
+        try {
+            Node node = firstNode();
+            String rawIndexes = Info.request(node, "sindex");
+            if (rawIndexes == null || rawIndexes.isBlank()) {
+                return Collections.emptyList();
+            }
+
+            String namespaceFilter = namespace == null || namespace.isBlank() ? null : namespace;
+            String setFilter = normalizeSetName(setName);
+            List<AerospikeIndexInfo> indexes = new ArrayList<>();
+
+            for (String indexStr : rawIndexes.split(";")) {
+                if (indexStr.isBlank()) {
+                    continue;
+                }
+
+                Map<String, Object> data = parseInfoString(indexStr);
+                String indexNamespace = firstString(data, "ns", "namespace");
+                String indexSet = firstString(data, "set", "set-name");
+
+                if (namespaceFilter != null && !namespaceFilter.equals(indexNamespace)) {
+                    continue;
+                }
+                if (setFilter != null && !setFilter.equals(indexSet)) {
+                    continue;
+                }
+
+                indexes.add(AerospikeIndexInfo.builder()
+                        .namespace(indexNamespace)
+                        .setName(indexSet)
+                        .indexName(firstString(data, "indexname", "index", "name"))
+                        .binName(firstString(data, "bin", "bins"))
+                        .type(firstString(data, "type", "indextype"))
+                        .collectionType(firstString(data, "collection", "collectiontype"))
+                        .state(firstString(data, "state"))
+                        .syncState(firstString(data, "sync_state", "sync-state"))
+                        .raw(data)
+                        .build());
+            }
+
+            return indexes;
+        } catch (Exception e) {
+            log.error("Failed to get secondary indexes", e);
+            throw new RuntimeException("Failed to get secondary indexes: " + e.getMessage(), e);
+        }
+    }
+
+    public List<UdfModuleInfo> getUdfs() {
+        ensureConnected();
+
+        try {
+            String rawUdfs = Info.request(firstNode(), "udf-list");
+            if (rawUdfs == null || rawUdfs.isBlank()) {
+                return Collections.emptyList();
+            }
+
+            List<UdfModuleInfo> udfs = new ArrayList<>();
+            for (String udfStr : rawUdfs.split(";")) {
+                if (udfStr.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> data = parseInfoString(udfStr);
+                udfs.add(UdfModuleInfo.builder()
+                        .filename(firstString(data, "filename", "file"))
+                        .hash(firstString(data, "hash"))
+                        .type(firstString(data, "type"))
+                        .raw(data)
+                        .build());
+            }
+
+            return udfs;
+        } catch (Exception e) {
+            log.error("Failed to get UDF modules", e);
+            throw new RuntimeException("Failed to get UDF modules: " + e.getMessage(), e);
+        }
+    }
+
+    public InfoCommandResponse runInfoCommand(InfoCommandRequest request) {
+        ensureConnected();
+        if (request == null || request.getCommand() == null || request.getCommand().isBlank()) {
+            throw new IllegalArgumentException("Info command is required");
+        }
+
+        String command = request.getCommand().trim();
+        try {
+            Node node = resolveNode(request.getNodeName());
+            String raw = Info.request(node, command);
+            return InfoCommandResponse.builder()
+                    .command(command)
+                    .nodeName(node.getName())
+                    .raw(raw)
+                    .parsed(parseInfoString(raw))
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to run info command {}", command, e);
+            throw new RuntimeException("Failed to run info command: " + e.getMessage(), e);
+        }
+    }
+
+    public BinStats getBinStats(String namespace, String setName, Integer maxRecords) {
+        ensureConnected();
+        validateNamespace(namespace);
+
+        int scanLimit = clamp(maxRecords, DEFAULT_SCAN_LIMIT, 1, MAX_SCAN_LIMIT);
+        String normalizedSetName = normalizeSetName(setName);
+        Map<String, MutableBinSummary> summaries = new TreeMap<>();
+        int[] scanned = { 0 };
+        ScanPolicy scanPolicy = new ScanPolicy();
+        scanPolicy.maxRecords = scanLimit;
+
+        try {
+            client.scanAll(scanPolicy, namespace, normalizedSetName, (key, record) -> {
+                scanned[0]++;
+                if (record.bins == null) {
+                    return;
+                }
+
+                record.bins.forEach((binName, value) -> {
+                    MutableBinSummary summary = summaries.computeIfAbsent(binName, ignored -> new MutableBinSummary());
+                    summary.recordsWithBin++;
+                    String type = describeValueType(value);
+                    summary.typeCounts.merge(type, 1, Integer::sum);
+                    if (summary.sampleValues.size() < 5) {
+                        summary.sampleValues.add(stringifyValue(value));
+                    }
+                });
+            });
+
+            List<BinStats.BinSummary> bins = summaries.entrySet().stream()
+                    .map(entry -> BinStats.BinSummary.builder()
+                            .name(entry.getKey())
+                            .recordsWithBin(entry.getValue().recordsWithBin)
+                            .coveragePercent(scanned[0] == 0 ? 0.0
+                                    : Math.round((entry.getValue().recordsWithBin * 10000.0) / scanned[0]) / 100.0)
+                            .typeCounts(entry.getValue().typeCounts)
+                            .sampleValues(entry.getValue().sampleValues)
+                            .build())
+                    .toList();
+
+            return BinStats.builder()
+                    .namespace(namespace)
+                    .setName(normalizedSetName)
+                    .scannedRecords(scanned[0])
+                    .bins(bins)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to sample bin stats from {}.{}", namespace, normalizedSetName, e);
+            throw new RuntimeException("Failed to sample bin stats: " + e.getMessage(), e);
         }
     }
 
@@ -333,6 +545,137 @@ public class AerospikeService {
         }
     }
 
+    private Host[] resolveHosts(ConnectionRequest request) {
+        Integer defaultPort = request.getPort() != null ? request.getPort() : 3000;
+        List<String> seedValues = new ArrayList<>();
+
+        if (request.getHosts() != null) {
+            request.getHosts().stream()
+                    .filter(Objects::nonNull)
+                    .flatMap(value -> Arrays.stream(value.split(",")))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .forEach(seedValues::add);
+        }
+
+        if (seedValues.isEmpty() && request.getHost() != null && !request.getHost().isBlank()) {
+            Arrays.stream(request.getHost().split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .forEach(seedValues::add);
+        }
+
+        if (seedValues.isEmpty()) {
+            seedValues.add("localhost");
+        }
+
+        return seedValues.stream()
+                .map(seed -> parseHostSeed(seed, defaultPort))
+                .toArray(Host[]::new);
+    }
+
+    private Host parseHostSeed(String seed, Integer defaultPort) {
+        String host = seed;
+        int port = defaultPort != null ? defaultPort : 3000;
+
+        int portSeparator = seed.lastIndexOf(':');
+        if (portSeparator > 0 && portSeparator < seed.length() - 1) {
+            host = seed.substring(0, portSeparator);
+            try {
+                port = Integer.parseInt(seed.substring(portSeparator + 1));
+            } catch (NumberFormatException ignored) {
+                host = seed;
+            }
+        }
+
+        return new Host(host, port);
+    }
+
+    private Node firstNode() {
+        Node[] nodes = client.getNodes();
+        if (nodes.length == 0) {
+            throw new RuntimeException("No active Aerospike nodes are available");
+        }
+        return nodes[0];
+    }
+
+    private Node resolveNode(String nodeName) {
+        if (nodeName == null || nodeName.isBlank()) {
+            return firstNode();
+        }
+
+        return Arrays.stream(client.getNodes())
+                .filter(node -> nodeName.equals(node.getName()) || nodeName.equals(node.getHost().toString()))
+                .findFirst()
+                .orElseGet(this::firstNode);
+    }
+
+    private String requestInfo(Node node, String command) {
+        try {
+            return Info.request(node, command);
+        } catch (Exception e) {
+            log.debug("Info command {} failed for node {}", command, node.getName(), e);
+            return null;
+        }
+    }
+
+    private Map<String, Object> requestInfoMap(Node node, String command) {
+        return parseInfoString(requestInfo(node, command));
+    }
+
+    private Map<String, Object> mergeNodeStatistics(List<NodeInfo> nodes) {
+        Map<String, Object> merged = new TreeMap<>();
+        if (nodes == null) {
+            return merged;
+        }
+
+        for (NodeInfo node : nodes) {
+            if (node.getStatistics() == null) {
+                continue;
+            }
+            node.getStatistics().forEach((key, value) -> merged.putIfAbsent(key, value));
+        }
+        return merged;
+    }
+
+    private String firstString(Map<String, Object> data, String... keys) {
+        for (String key : keys) {
+            Object value = data.get(key);
+            if (value != null) {
+                return value.toString();
+            }
+        }
+        return null;
+    }
+
+    private String describeValueType(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof byte[]) {
+            return "bytes";
+        }
+        if (value instanceof List<?>) {
+            return "list";
+        }
+        if (value instanceof Map<?, ?>) {
+            return "map";
+        }
+        if (value instanceof Number) {
+            return "number";
+        }
+        if (value instanceof Boolean) {
+            return "boolean";
+        }
+        return "string";
+    }
+
+    private static class MutableBinSummary {
+        private int recordsWithBin;
+        private final Map<String, Integer> typeCounts = new TreeMap<>();
+        private final List<String> sampleValues = new ArrayList<>();
+    }
+
     private void ensureConnected() {
         if (client == null || !client.isConnected()) {
             throw new RuntimeException("Not connected to Aerospike. Please connect first.");
@@ -438,7 +781,7 @@ public class AerospikeService {
             return result;
         }
 
-        String[] pairs = infoStr.split(":");
+        String[] pairs = infoStr.split("[:;]");
         for (String pair : pairs) {
             String[] kv = pair.split("=", 2);
             if (kv.length == 2) {
