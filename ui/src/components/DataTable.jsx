@@ -22,6 +22,7 @@ export const DataTable = ({
     const [searchField, setSearchField] = useState('ALL');
     const [caseSensitive, setCaseSensitive] = useState(false);
     const [maxResults, setMaxResults] = useState(100);
+    const [scanLimit, setScanLimit] = useState(100);
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
     const [searchActive, setSearchActive] = useState(false);
@@ -57,6 +58,7 @@ export const DataTable = ({
             searchField,
             caseSensitive,
             maxResults,
+            maxScanRecords: Math.max(scanLimit, maxResults),
         });
     };
 
@@ -65,7 +67,14 @@ export const DataTable = ({
         setSearchActive(false);
         setCurrentPage(1);
         if (onSearch) {
-            onSearch({ searchPattern: '', searchType: 'CONTAINS', searchField: 'ALL', clearSearch: true, maxResults });
+            onSearch({
+                searchPattern: '',
+                searchType: 'CONTAINS',
+                searchField: 'ALL',
+                clearSearch: true,
+                maxResults,
+                maxRecords: scanLimit,
+            });
         }
     };
 
@@ -114,7 +123,7 @@ export const DataTable = ({
 
                 <div className="table-actions">
                     {onReload && (
-                        <button className="btn-icon-action" onClick={onReload} disabled={isSearching || !namespace} title="Reload records">
+                        <button className="btn-icon-action" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching || !namespace} title="Reload records">
                             <FiRefreshCw className={isSearching ? 'spinning' : ''} />
                         </button>
                     )}
@@ -177,6 +186,19 @@ export const DataTable = ({
                         </label>
                         <select
                             className="search-type-select compact"
+                            value={scanLimit}
+                            onChange={(e) => setScanLimit(Number(e.target.value))}
+                            disabled={isSearching}
+                            title="Records to scan when loading this scope"
+                        >
+                            <option value={50}>Scan 50</option>
+                            <option value={100}>Scan 100</option>
+                            <option value={250}>Scan 250</option>
+                            <option value={500}>Scan 500</option>
+                            <option value={1000}>Scan 1000</option>
+                        </select>
+                        <select
+                            className="search-type-select compact"
                             value={maxResults}
                             onChange={(e) => setMaxResults(Number(e.target.value))}
                             disabled={isSearching}
@@ -215,7 +237,7 @@ export const DataTable = ({
                         <p>{namespace ? 'Try a broader search, reload this scope, or add a new record.' : 'Select a namespace, all sets, or a single set from the browser.'}</p>
                         <div className="empty-actions">
                             {onReload && namespace && (
-                                <button className="btn-clear-search" onClick={onReload} disabled={isSearching}>
+                                <button className="btn-clear-search" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching}>
                                     <FiRefreshCw /> Reload
                                 </button>
                             )}

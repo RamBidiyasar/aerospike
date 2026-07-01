@@ -8,6 +8,7 @@ import { AddRecordModal } from './components/AddRecordModal';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ResizeHandle } from './components/ResizeHandle';
 import { NamespaceStats } from './components/NamespaceStats';
+import { AerospikeOpsPanel } from './components/AerospikeOpsPanel';
 import { useAerospike } from './hooks/useAerospike';
 import { namespaceAPI, recordAPI } from './services/api';
 import './App.css';
@@ -77,9 +78,9 @@ function App() {
     updateRecords([]);
   };
 
-  const loadRecordsForScope = async (namespace, setScope) => {
+  const loadRecordsForScope = async (namespace, setScope, maxRecords = 100) => {
     const apiSetName = setScope === ALL_SETS ? null : setScope;
-    const response = await recordAPI.scanRecords(namespace, apiSetName, 100);
+    const response = await recordAPI.scanRecords(namespace, apiSetName, maxRecords);
     updateRecords(response.data);
   };
 
@@ -202,7 +203,7 @@ function App() {
     }
   };
 
-  const handleReloadRecords = async () => {
+  const handleReloadRecords = async ({ maxRecords = 100 } = {}) => {
     if (!selectedNamespace || !selectedSet) {
       return;
     }
@@ -211,7 +212,7 @@ function App() {
     setError(null);
 
     try {
-      await loadRecordsForScope(selectedNamespace, selectedSet);
+      await loadRecordsForScope(selectedNamespace, selectedSet, maxRecords);
     } catch (err) {
       setError(err.message);
       updateRecords([]);
@@ -226,6 +227,8 @@ function App() {
     searchField,
     caseSensitive,
     maxResults,
+    maxScanRecords,
+    maxRecords,
     clearSearch = false,
   }) => {
     if (!selectedNamespace || !selectedSet) {
@@ -237,7 +240,7 @@ function App() {
 
     try {
       if (clearSearch || !searchPattern.trim()) {
-        await loadRecordsForScope(selectedNamespace, selectedSet);
+        await loadRecordsForScope(selectedNamespace, selectedSet, maxRecords || 100);
       } else {
         const searchRequest = {
           namespace: selectedNamespace,
@@ -247,6 +250,7 @@ function App() {
           searchField,
           caseSensitive,
           maxResults,
+          maxScanRecords,
         };
         const response = await recordAPI.searchRecords(searchRequest);
         updateRecords(response.data);
@@ -310,6 +314,12 @@ function App() {
                 {error}
               </div>
             )}
+            <AerospikeOpsPanel
+              connectionStatus={connectionStatus}
+              selectedNamespace={selectedNamespace}
+              selectedSet={selectedSet}
+              allSetsValue={ALL_SETS}
+            />
             {selectedNamespace && !selectedSet ? (
               <NamespaceStats namespace={selectedNamespace} />
             ) : (
