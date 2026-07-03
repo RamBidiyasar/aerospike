@@ -3,6 +3,8 @@ import {
     FiActivity,
     FiBarChart2,
     FiBox,
+    FiChevronDown,
+    FiChevronUp,
     FiCode,
     FiCpu,
     FiDatabase,
@@ -82,6 +84,7 @@ export const AerospikeOpsPanel = ({
     const [sampleSize, setSampleSize] = useState(100);
     const [loading, setLoading] = useState(null);
     const [error, setError] = useState(null);
+    const [detailsOpen, setDetailsOpen] = useState(false);
 
     const activeSetName = selectedSet && selectedSet !== allSetsValue ? selectedSet : null;
 
@@ -209,309 +212,338 @@ export const AerospikeOpsPanel = ({
     ];
 
     return (
-        <section className={`ops-panel ${activeTab === 'context' && activeSetName ? 'set-context-active' : ''}`}>
-            <div className="ops-tabs">
-                {tabs.map(tab => {
-                    const Icon = tab.icon;
-                    return (
-                        <button
-                            key={tab.id}
-                            className={activeTab === tab.id ? 'active' : ''}
-                            onClick={() => setActiveTab(tab.id)}
-                        >
-                            <Icon /> {tab.label}
-                        </button>
-                    );
-                })}
-                <button className="ops-refresh" onClick={loadOverview} disabled={loading === 'overview'}>
-                    <FiRefreshCw className={loading === 'overview' ? 'spinning' : ''} /> Refresh
-                </button>
+        <section className={`ops-panel ${detailsOpen ? 'expanded' : 'compact'} ${activeTab === 'context' && activeSetName ? 'set-context-active' : ''}`}>
+            <div className="ops-status-strip">
+                <div className="ops-status-title">
+                    <FiActivity />
+                    <div>
+                        <span>Cluster status</span>
+                        <strong>{connectionStatus.clusterName || 'Aerospike cluster'}</strong>
+                    </div>
+                </div>
+
+                <div className="ops-status-metrics">
+                    <span>Nodes <strong>{overview?.activeNodeCount || 0}/{overview?.nodeCount || connectionStatus.nodes?.length || 0}</strong></span>
+                    <span>Namespaces <strong>{overview?.namespaceCount || '-'}</strong></span>
+                    <span>Sets <strong>{overview?.setCount || '-'}</strong></span>
+                    <span>Objects <strong>{formatNumber(overview?.totalObjects)}</strong></span>
+                    <span>Data <strong>{formatBytes((overview?.totalMemoryDataBytes || 0) + (overview?.totalDeviceDataBytes || 0))}</strong></span>
+                </div>
+
+                <div className="ops-status-actions">
+                    <button className="ops-light-button" onClick={loadOverview} disabled={loading === 'overview'}>
+                        <FiRefreshCw className={loading === 'overview' ? 'spinning' : ''} /> Refresh
+                    </button>
+                    <button className="ops-light-button primary" onClick={() => setDetailsOpen(open => !open)}>
+                        {detailsOpen ? <FiChevronUp /> : <FiChevronDown />}
+                        {detailsOpen ? 'Hide details' : 'Show details'}
+                    </button>
+                </div>
             </div>
 
-            {error && <div className="ops-error">{error}</div>}
-
-            {activeTab === 'overview' && (
-                <div className="ops-content">
-                    <div className="ops-kpi-grid">
-                        <div className="ops-kpi-card">
-                            <FiCpu />
-                            <span>Nodes</span>
-                            <strong>{overview?.activeNodeCount || 0}/{overview?.nodeCount || 0}</strong>
-                        </div>
-                        <div className="ops-kpi-card">
-                            <FiDatabase />
-                            <span>Namespaces</span>
-                            <strong>{overview?.namespaceCount || 0}</strong>
-                        </div>
-                        <div className="ops-kpi-card">
-                            <FiLayers />
-                            <span>Sets</span>
-                            <strong>{overview?.setCount || 0}</strong>
-                        </div>
-                        <div className="ops-kpi-card">
-                            <FiBox />
-                            <span>Objects</span>
-                            <strong>{formatNumber(overview?.totalObjects)}</strong>
-                        </div>
-                        <div className="ops-kpi-card">
-                            <FiHardDrive />
-                            <span>Data bytes</span>
-                            <strong>{formatBytes((overview?.totalMemoryDataBytes || 0) + (overview?.totalDeviceDataBytes || 0))}</strong>
-                        </div>
+            {detailsOpen && (
+                <>
+                    <div className="ops-tabs">
+                        {tabs.map(tab => {
+                            const Icon = tab.icon;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    className={activeTab === tab.id ? 'active' : ''}
+                                    onClick={() => setActiveTab(tab.id)}
+                                >
+                                    <Icon /> {tab.label}
+                                </button>
+                            );
+                        })}
                     </div>
 
-                    <div className="ops-split">
-                        <div className="ops-card">
-                            <h4>Cluster nodes</h4>
+                    {error && <div className="ops-error">{error}</div>}
+
+                    {activeTab === 'overview' && (
+                        <div className="ops-content">
+                            <div className="ops-kpi-grid">
+                                <div className="ops-kpi-card">
+                                    <FiCpu />
+                                    <span>Nodes</span>
+                                    <strong>{overview?.activeNodeCount || 0}/{overview?.nodeCount || 0}</strong>
+                                </div>
+                                <div className="ops-kpi-card">
+                                    <FiDatabase />
+                                    <span>Namespaces</span>
+                                    <strong>{overview?.namespaceCount || 0}</strong>
+                                </div>
+                                <div className="ops-kpi-card">
+                                    <FiLayers />
+                                    <span>Sets</span>
+                                    <strong>{overview?.setCount || 0}</strong>
+                                </div>
+                                <div className="ops-kpi-card">
+                                    <FiBox />
+                                    <span>Objects</span>
+                                    <strong>{formatNumber(overview?.totalObjects)}</strong>
+                                </div>
+                                <div className="ops-kpi-card">
+                                    <FiHardDrive />
+                                    <span>Data bytes</span>
+                                    <strong>{formatBytes((overview?.totalMemoryDataBytes || 0) + (overview?.totalDeviceDataBytes || 0))}</strong>
+                                </div>
+                            </div>
+
+                            <div className="ops-split">
+                                <div className="ops-card">
+                                    <h4>Cluster nodes</h4>
+                                    <div className="ops-table-wrap">
+                                        <table className="ops-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Node</th>
+                                                    <th>Address</th>
+                                                    <th>Status</th>
+                                                    <th>Build</th>
+                                                    <th>Uptime</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(overview?.nodes || []).map(node => (
+                                                    <tr key={node.name}>
+                                                        <td>{node.name}</td>
+                                                        <td>{node.address}</td>
+                                                        <td><span className={node.active ? 'ops-status active' : 'ops-status'}>{node.active ? 'Active' : 'Inactive'}</span></td>
+                                                        <td>{node.build || '-'}</td>
+                                                        <td>{formatDuration(node.uptimeSeconds)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div className="ops-card">
+                                    <h4>Sample cluster statistics</h4>
+                                    <InfoGrid data={overview?.clusterStatistics} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'context' && (
+                        <div className="ops-content">
+                            {!selectedNamespace ? (
+                                <div className="ops-empty-inline">Select a namespace or set to see Aerospike-level details.</div>
+                            ) : activeSetName ? (
+                                <div className="ops-set-summary-card">
+                                    <div className="ops-set-title">
+                                        <span>Set</span>
+                                        <strong>{selectedNamespace} / {activeSetName}</strong>
+                                    </div>
+                                    <div className="ops-set-metrics">
+                                        <span>Objects <strong>{formatNumber(selectedSetInfo?.objectCount)}</strong></span>
+                                        <span>Memory <strong>{formatBytes(selectedSetInfo?.memoryDataBytes)}</strong></span>
+                                        <span>Device <strong>{formatBytes(selectedSetInfo?.deviceDataBytes)}</strong></span>
+                                        <span>Indexes <strong>{contextIndexes.length}</strong></span>
+                                    </div>
+                                    <p>Select "Only namespace" in the browser for full namespace configuration details.</p>
+                                </div>
+                            ) : (
+                                <div className="ops-split">
+                                    <div className="ops-card">
+                                        <h4>Namespace: {selectedNamespace}</h4>
+                                        <div className="ops-mini-kpis">
+                                            <span>Objects <strong>{formatNumber(selectedNamespaceInfo?.masterObjects)}</strong></span>
+                                            <span>Replication <strong>{formatNumber(selectedNamespaceInfo?.replicationFactor)}</strong></span>
+                                            <span>Engine <strong>{selectedNamespaceInfo?.storageEngine || '-'}</strong></span>
+                                        </div>
+                                        <InfoGrid data={selectedNamespaceInfo?.config} limit={24} />
+                                    </div>
+                                    <div className="ops-card">
+                                        <h4>Top sets</h4>
+                                        <div className="ops-table-wrap compact">
+                                            <table className="ops-table">
+                                                <tbody>
+                                                    {(overview?.sets || [])
+                                                        .filter(set => set.namespace === selectedNamespace)
+                                                        .sort((a, b) => (b.objectCount || 0) - (a.objectCount || 0))
+                                                        .slice(0, 8)
+                                                        .map(set => (
+                                                            <tr key={set.setName}>
+                                                                <td>{set.setName}</td>
+                                                                <td>{formatNumber(set.objectCount)}</td>
+                                                            </tr>
+                                                        ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'indexes' && (
+                        <div className="ops-content">
+                            <div className="ops-section-header">
+                                <h4>Secondary indexes {selectedNamespace ? `for ${selectedNamespace}${activeSetName ? `.${activeSetName}` : ''}` : ''}</h4>
+                                <button onClick={loadIndexes} disabled={loading === 'indexes'}><FiRefreshCw /> Reload</button>
+                            </div>
                             <div className="ops-table-wrap">
                                 <table className="ops-table">
                                     <thead>
                                         <tr>
-                                            <th>Node</th>
-                                            <th>Address</th>
-                                            <th>Status</th>
-                                            <th>Build</th>
-                                            <th>Uptime</th>
+                                            <th>Name</th>
+                                            <th>Namespace</th>
+                                            <th>Set</th>
+                                            <th>Bin</th>
+                                            <th>Type</th>
+                                            <th>Collection</th>
+                                            <th>State</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {(overview?.nodes || []).map(node => (
-                                            <tr key={node.name}>
-                                                <td>{node.name}</td>
-                                                <td>{node.address}</td>
-                                                <td><span className={node.active ? 'ops-status active' : 'ops-status'}>{node.active ? 'Active' : 'Inactive'}</span></td>
-                                                <td>{node.build || '-'}</td>
-                                                <td>{formatDuration(node.uptimeSeconds)}</td>
+                                        {contextIndexes.map((index, idx) => (
+                                            <tr key={`${index.indexName}:${idx}`}>
+                                                <td>{index.indexName || '-'}</td>
+                                                <td>{index.namespace || '-'}</td>
+                                                <td>{index.setName || '-'}</td>
+                                                <td>{index.binName || '-'}</td>
+                                                <td>{index.type || '-'}</td>
+                                                <td>{index.collectionType || '-'}</td>
+                                                <td>{index.state || index.syncState || '-'}</td>
                                             </tr>
                                         ))}
+                                        {contextIndexes.length === 0 && (
+                                            <tr><td colSpan="7" className="ops-empty-cell">No secondary indexes found for this context.</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
-                        <div className="ops-card">
-                            <h4>Sample cluster statistics</h4>
-                            <InfoGrid data={overview?.clusterStatistics} />
-                        </div>
-                    </div>
-                </div>
-            )}
+                    )}
 
-            {activeTab === 'context' && (
-                <div className="ops-content">
-                    {!selectedNamespace ? (
-                        <div className="ops-empty-inline">Select a namespace or set to see Aerospike-level details.</div>
-                    ) : activeSetName ? (
-                        <div className="ops-set-summary-card">
-                            <div className="ops-set-title">
-                                <span>Set</span>
-                                <strong>{selectedNamespace} / {activeSetName}</strong>
-                            </div>
-                            <div className="ops-set-metrics">
-                                <span>Objects <strong>{formatNumber(selectedSetInfo?.objectCount)}</strong></span>
-                                <span>Memory <strong>{formatBytes(selectedSetInfo?.memoryDataBytes)}</strong></span>
-                                <span>Device <strong>{formatBytes(selectedSetInfo?.deviceDataBytes)}</strong></span>
-                                <span>Indexes <strong>{contextIndexes.length}</strong></span>
-                            </div>
-                            <p>Select "Only namespace" in the browser for full namespace configuration details.</p>
-                        </div>
-                    ) : (
-                        <div className="ops-split">
-                            <div className="ops-card">
-                                <h4>Namespace: {selectedNamespace}</h4>
-                                <div className="ops-mini-kpis">
-                                    <span>Objects <strong>{formatNumber(selectedNamespaceInfo?.masterObjects)}</strong></span>
-                                    <span>Replication <strong>{formatNumber(selectedNamespaceInfo?.replicationFactor)}</strong></span>
-                                    <span>Engine <strong>{selectedNamespaceInfo?.storageEngine || '-'}</strong></span>
+                    {activeTab === 'bins' && (
+                        <div className="ops-content">
+                            <div className="ops-section-header">
+                                <h4>Bin statistics sample</h4>
+                                <div className="ops-controls">
+                                    <select value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))}>
+                                        <option value={50}>50 records</option>
+                                        <option value={100}>100 records</option>
+                                        <option value={250}>250 records</option>
+                                        <option value={500}>500 records</option>
+                                        <option value={1000}>1000 records</option>
+                                    </select>
+                                    <button onClick={loadBinStats} disabled={!selectedNamespace || loading === 'bins'}>
+                                        <FiBarChart2 /> Sample bins
+                                    </button>
                                 </div>
-                                <InfoGrid data={selectedNamespaceInfo?.config} limit={24} />
                             </div>
-                            <div className="ops-card">
-                                <h4>Top sets</h4>
-                                <div className="ops-table-wrap compact">
+                            {!selectedNamespace ? (
+                                <div className="ops-empty-inline">Select a namespace or set before sampling bins.</div>
+                            ) : (
+                                <div className="ops-table-wrap">
                                     <table className="ops-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Bin</th>
+                                                <th>Records</th>
+                                                <th>Coverage</th>
+                                                <th>Types</th>
+                                                <th>Samples</th>
+                                            </tr>
+                                        </thead>
                                         <tbody>
-                                            {(overview?.sets || [])
-                                                .filter(set => set.namespace === selectedNamespace)
-                                                .sort((a, b) => (b.objectCount || 0) - (a.objectCount || 0))
-                                                .slice(0, 8)
-                                                .map(set => (
-                                                    <tr key={set.setName}>
-                                                        <td>{set.setName}</td>
-                                                        <td>{formatNumber(set.objectCount)}</td>
-                                                    </tr>
-                                                ))}
+                                            {(binStats?.bins || []).map(bin => (
+                                                <tr key={bin.name}>
+                                                    <td>{bin.name}</td>
+                                                    <td>{formatNumber(bin.recordsWithBin)} / {formatNumber(binStats.scannedRecords)}</td>
+                                                    <td>{bin.coveragePercent}%</td>
+                                                    <td>{Object.entries(bin.typeCounts || {}).map(([type, count]) => `${type}:${count}`).join(', ')}</td>
+                                                    <td><code>{(bin.sampleValues || []).join(' | ')}</code></td>
+                                                </tr>
+                                            ))}
+                                            {!binStats && (
+                                                <tr><td colSpan="5" className="ops-empty-cell">Run a sample to infer bin names, value types, and coverage.</td></tr>
+                                            )}
+                                            {binStats && binStats.bins.length === 0 && (
+                                                <tr><td colSpan="5" className="ops-empty-cell">No bins found in the sampled records.</td></tr>
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
-                </div>
-            )}
 
-            {activeTab === 'indexes' && (
-                <div className="ops-content">
-                    <div className="ops-section-header">
-                        <h4>Secondary indexes {selectedNamespace ? `for ${selectedNamespace}${activeSetName ? `.${activeSetName}` : ''}` : ''}</h4>
-                        <button onClick={loadIndexes} disabled={loading === 'indexes'}><FiRefreshCw /> Reload</button>
-                    </div>
-                    <div className="ops-table-wrap">
-                        <table className="ops-table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Namespace</th>
-                                    <th>Set</th>
-                                    <th>Bin</th>
-                                    <th>Type</th>
-                                    <th>Collection</th>
-                                    <th>State</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {contextIndexes.map((index, idx) => (
-                                    <tr key={`${index.indexName}:${idx}`}>
-                                        <td>{index.indexName || '-'}</td>
-                                        <td>{index.namespace || '-'}</td>
-                                        <td>{index.setName || '-'}</td>
-                                        <td>{index.binName || '-'}</td>
-                                        <td>{index.type || '-'}</td>
-                                        <td>{index.collectionType || '-'}</td>
-                                        <td>{index.state || index.syncState || '-'}</td>
-                                    </tr>
-                                ))}
-                                {contextIndexes.length === 0 && (
-                                    <tr><td colSpan="7" className="ops-empty-cell">No secondary indexes found for this context.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'bins' && (
-                <div className="ops-content">
-                    <div className="ops-section-header">
-                        <h4>Bin statistics sample</h4>
-                        <div className="ops-controls">
-                            <select value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))}>
-                                <option value={50}>50 records</option>
-                                <option value={100}>100 records</option>
-                                <option value={250}>250 records</option>
-                                <option value={500}>500 records</option>
-                                <option value={1000}>1000 records</option>
-                            </select>
-                            <button onClick={loadBinStats} disabled={!selectedNamespace || loading === 'bins'}>
-                                <FiBarChart2 /> Sample bins
-                            </button>
-                        </div>
-                    </div>
-                    {!selectedNamespace ? (
-                        <div className="ops-empty-inline">Select a namespace or set before sampling bins.</div>
-                    ) : (
-                        <div className="ops-table-wrap">
-                            <table className="ops-table">
-                                <thead>
-                                    <tr>
-                                        <th>Bin</th>
-                                        <th>Records</th>
-                                        <th>Coverage</th>
-                                        <th>Types</th>
-                                        <th>Samples</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(binStats?.bins || []).map(bin => (
-                                        <tr key={bin.name}>
-                                            <td>{bin.name}</td>
-                                            <td>{formatNumber(bin.recordsWithBin)} / {formatNumber(binStats.scannedRecords)}</td>
-                                            <td>{bin.coveragePercent}%</td>
-                                            <td>{Object.entries(bin.typeCounts || {}).map(([type, count]) => `${type}:${count}`).join(', ')}</td>
-                                            <td><code>{(bin.sampleValues || []).join(' | ')}</code></td>
+                    {activeTab === 'udfs' && (
+                        <div className="ops-content">
+                            <div className="ops-section-header">
+                                <h4>Registered UDF modules</h4>
+                                <button onClick={loadUdfs} disabled={loading === 'udfs'}><FiRefreshCw /> Reload</button>
+                            </div>
+                            <div className="ops-table-wrap">
+                                <table className="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>File</th>
+                                            <th>Type</th>
+                                            <th>Hash</th>
                                         </tr>
-                                    ))}
-                                    {!binStats && (
-                                        <tr><td colSpan="5" className="ops-empty-cell">Run a sample to infer bin names, value types, and coverage.</td></tr>
-                                    )}
-                                    {binStats && binStats.bins.length === 0 && (
-                                        <tr><td colSpan="5" className="ops-empty-cell">No bins found in the sampled records.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'udfs' && (
-                <div className="ops-content">
-                    <div className="ops-section-header">
-                        <h4>Registered UDF modules</h4>
-                        <button onClick={loadUdfs} disabled={loading === 'udfs'}><FiRefreshCw /> Reload</button>
-                    </div>
-                    <div className="ops-table-wrap">
-                        <table className="ops-table">
-                            <thead>
-                                <tr>
-                                    <th>File</th>
-                                    <th>Type</th>
-                                    <th>Hash</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {udfs.map((udf, idx) => (
-                                    <tr key={`${udf.filename}:${idx}`}>
-                                        <td>{udf.filename || '-'}</td>
-                                        <td>{udf.type || '-'}</td>
-                                        <td><code>{udf.hash || '-'}</code></td>
-                                    </tr>
-                                ))}
-                                {udfs.length === 0 && (
-                                    <tr><td colSpan="3" className="ops-empty-cell">No UDF modules reported by the cluster.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'info' && (
-                <div className="ops-content">
-                    <div className="ops-section-header">
-                        <h4>Info command explorer</h4>
-                        <div className="ops-controls wide">
-                            <input
-                                list="info-command-list"
-                                value={infoCommand}
-                                onChange={(e) => setInfoCommand(e.target.value)}
-                                placeholder="statistics, namespace/test, sets/test..."
-                            />
-                            <datalist id="info-command-list">
-                                {COMMON_INFO_COMMANDS.map(command => <option key={command} value={command} />)}
-                            </datalist>
-                            <select value={infoNode} onChange={(e) => setInfoNode(e.target.value)}>
-                                <option value="">First node</option>
-                                {(overview?.nodes || []).map(node => (
-                                    <option key={node.name} value={node.name}>{node.name}</option>
-                                ))}
-                            </select>
-                            <button onClick={runInfoCommand} disabled={!infoCommand.trim() || loading === 'info'}>
-                                <FiTerminal /> Run
-                            </button>
-                        </div>
-                    </div>
-                    {infoResponse ? (
-                        <div className="ops-info-result">
-                            <div className="ops-result-meta">
-                                <span>Command: <strong>{infoResponse.command}</strong></span>
-                                <span>Node: <strong>{infoResponse.nodeName}</strong></span>
+                                    </thead>
+                                    <tbody>
+                                        {udfs.map((udf, idx) => (
+                                            <tr key={`${udf.filename}:${idx}`}>
+                                                <td>{udf.filename || '-'}</td>
+                                                <td>{udf.type || '-'}</td>
+                                                <td><code>{udf.hash || '-'}</code></td>
+                                            </tr>
+                                        ))}
+                                        {udfs.length === 0 && (
+                                            <tr><td colSpan="3" className="ops-empty-cell">No UDF modules reported by the cluster.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                            <pre>{infoResponse.raw || '(empty response)'}</pre>
                         </div>
-                    ) : (
-                        <div className="ops-empty-inline">Run an Aerospike info command to inspect raw node details.</div>
                     )}
-                </div>
+
+                    {activeTab === 'info' && (
+                        <div className="ops-content">
+                            <div className="ops-section-header">
+                                <h4>Info command explorer</h4>
+                                <div className="ops-controls wide">
+                                    <input
+                                        list="info-command-list"
+                                        value={infoCommand}
+                                        onChange={(e) => setInfoCommand(e.target.value)}
+                                        placeholder="statistics, namespace/test, sets/test..."
+                                    />
+                                    <datalist id="info-command-list">
+                                        {COMMON_INFO_COMMANDS.map(command => <option key={command} value={command} />)}
+                                    </datalist>
+                                    <select value={infoNode} onChange={(e) => setInfoNode(e.target.value)}>
+                                        <option value="">First node</option>
+                                        {(overview?.nodes || []).map(node => (
+                                            <option key={node.name} value={node.name}>{node.name}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={runInfoCommand} disabled={!infoCommand.trim() || loading === 'info'}>
+                                        <FiTerminal /> Run
+                                    </button>
+                                </div>
+                            </div>
+                            {infoResponse ? (
+                                <div className="ops-info-result">
+                                    <div className="ops-result-meta">
+                                        <span>Command: <strong>{infoResponse.command}</strong></span>
+                                        <span>Node: <strong>{infoResponse.nodeName}</strong></span>
+                                    </div>
+                                    <pre>{infoResponse.raw || '(empty response)'}</pre>
+                                </div>
+                            ) : (
+                                <div className="ops-empty-inline">Run an Aerospike info command to inspect raw node details.</div>
+                            )}
+                        </div>
+                    )}
+                </>
             )}
         </section>
     );
