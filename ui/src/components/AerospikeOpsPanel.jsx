@@ -209,7 +209,7 @@ export const AerospikeOpsPanel = ({
     ];
 
     return (
-        <section className="ops-panel">
+        <section className={`ops-panel ${activeTab === 'context' && activeSetName ? 'set-context-active' : ''}`}>
             <div className="ops-tabs">
                 {tabs.map(tab => {
                     const Icon = tab.icon;
@@ -300,6 +300,20 @@ export const AerospikeOpsPanel = ({
                 <div className="ops-content">
                     {!selectedNamespace ? (
                         <div className="ops-empty-inline">Select a namespace or set to see Aerospike-level details.</div>
+                    ) : activeSetName ? (
+                        <div className="ops-set-summary-card">
+                            <div className="ops-set-title">
+                                <span>Set</span>
+                                <strong>{selectedNamespace} / {activeSetName}</strong>
+                            </div>
+                            <div className="ops-set-metrics">
+                                <span>Objects <strong>{formatNumber(selectedSetInfo?.objectCount)}</strong></span>
+                                <span>Memory <strong>{formatBytes(selectedSetInfo?.memoryDataBytes)}</strong></span>
+                                <span>Device <strong>{formatBytes(selectedSetInfo?.deviceDataBytes)}</strong></span>
+                                <span>Indexes <strong>{contextIndexes.length}</strong></span>
+                            </div>
+                            <p>Select "Only namespace" in the browser for full namespace configuration details.</p>
+                        </div>
                     ) : (
                         <div className="ops-split">
                             <div className="ops-card">
@@ -312,32 +326,23 @@ export const AerospikeOpsPanel = ({
                                 <InfoGrid data={selectedNamespaceInfo?.config} limit={24} />
                             </div>
                             <div className="ops-card">
-                                <h4>{activeSetName ? `Set: ${activeSetName}` : 'Top sets'}</h4>
-                                {activeSetName ? (
-                                    <div className="ops-mini-kpis stacked">
-                                        <span>Objects <strong>{formatNumber(selectedSetInfo?.objectCount)}</strong></span>
-                                        <span>Memory <strong>{formatBytes(selectedSetInfo?.memoryDataBytes)}</strong></span>
-                                        <span>Device <strong>{formatBytes(selectedSetInfo?.deviceDataBytes)}</strong></span>
-                                        <span>Indexes in context <strong>{contextIndexes.length}</strong></span>
-                                    </div>
-                                ) : (
-                                    <div className="ops-table-wrap compact">
-                                        <table className="ops-table">
-                                            <tbody>
-                                                {(overview?.sets || [])
-                                                    .filter(set => set.namespace === selectedNamespace)
-                                                    .sort((a, b) => (b.objectCount || 0) - (a.objectCount || 0))
-                                                    .slice(0, 8)
-                                                    .map(set => (
-                                                        <tr key={set.setName}>
-                                                            <td>{set.setName}</td>
-                                                            <td>{formatNumber(set.objectCount)}</td>
-                                                        </tr>
-                                                    ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
+                                <h4>Top sets</h4>
+                                <div className="ops-table-wrap compact">
+                                    <table className="ops-table">
+                                        <tbody>
+                                            {(overview?.sets || [])
+                                                .filter(set => set.namespace === selectedNamespace)
+                                                .sort((a, b) => (b.objectCount || 0) - (a.objectCount || 0))
+                                                .slice(0, 8)
+                                                .map(set => (
+                                                    <tr key={set.setName}>
+                                                        <td>{set.setName}</td>
+                                                        <td>{formatNumber(set.objectCount)}</td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     )}
