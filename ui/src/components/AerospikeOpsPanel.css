@@ -8,6 +8,10 @@
     overflow: auto;
 }
 
+.ops-panel.set-context-active {
+    max-height: 190px;
+}
+
 .ops-tabs {
     display: flex;
     align-items: center;
@@ -56,6 +60,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
+}
+
+.ops-panel.set-context-active .ops-content {
+    padding: var(--spacing-md) var(--spacing-lg);
 }
 
 .ops-error {
@@ -268,6 +276,71 @@
     color: var(--color-text-primary);
 }
 
+.ops-set-summary-card {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.55fr) minmax(360px, 1.45fr) auto;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-secondary);
+    box-shadow: var(--shadow-sm);
+}
+
+.ops-set-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.ops-set-title span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ops-set-title strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-set-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(110px, 1fr));
+    gap: var(--spacing-sm);
+}
+
+.ops-set-metrics span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+}
+
+.ops-set-metrics strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.ops-set-summary-card p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    max-width: 260px;
+}
+
 .ops-empty-inline,
 .ops-empty-cell {
     padding: var(--spacing-lg);
@@ -310,5 +383,13 @@
 
     .ops-split {
         grid-template-columns: 1fr;
+    }
+
+    .ops-set-summary-card {
+        grid-template-columns: 1fr;
+    }
+
+    .ops-set-metrics {
+        grid-template-columns: repeat(2, minmax(110px, 1fr));
     }
 }
