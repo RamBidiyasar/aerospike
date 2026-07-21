@@ -78,6 +78,9 @@ export const recordAPI = {
     searchRecords: (searchRequest) =>
         apiClient.post('/records/search', searchRequest),
 
+    deleteByKeyPrefix: (deleteRequest) =>
+        apiClient.post('/records/delete-by-key-prefix', deleteRequest),
+
     getRecord: (namespace, setName, key) =>
         apiClient.get(`/records/${encodePathSegment(namespace)}/${encodePathSegment(setName)}/${encodePathSegment(key)}`),
 

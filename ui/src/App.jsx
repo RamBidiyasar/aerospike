@@ -263,6 +263,44 @@ function App() {
     }
   };
 
+  const handleDeleteByKeyPrefix = async ({ keyPrefix, caseSensitive }) => {
+    if (!selectedNamespace || !selectedSet || !keyPrefix.trim()) {
+      return null;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await recordAPI.deleteByKeyPrefix({
+        namespace: selectedNamespace,
+        setName: activeSetName,
+        keyPrefix,
+        caseSensitive,
+      });
+
+      selectRecord(null);
+      await loadRecordsForScope(selectedNamespace, selectedSet);
+
+      const result = response.data;
+      window.alert(
+        `Prefix delete complete.\n\n` +
+        `Scanned: ${Number(result.scannedRecords || 0).toLocaleString()}\n` +
+        `Matched: ${Number(result.matchedRecords || 0).toLocaleString()}\n` +
+        `Deleted: ${Number(result.deletedRecords || 0).toLocaleString()}\n` +
+        `Failed deletes: ${Number(result.failedDeletes || 0).toLocaleString()}\n` +
+        `Skipped without stored user key: ${Number(result.skippedRecordsWithoutUserKey || 0).toLocaleString()}`
+      );
+
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   return (
     <div className="app">
@@ -330,6 +368,7 @@ function App() {
                 selectedRecord={selectedRecord}
                 onAddRecord={() => setIsAddModalOpen(true)}
                 onSearch={handleSearch}
+                onDeleteByKeyPrefix={handleDeleteByKeyPrefix}
                 onReload={handleReloadRecords}
                 namespace={selectedNamespace}
                 setName={activeSetName}
