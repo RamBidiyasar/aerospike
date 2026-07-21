@@ -10,6 +10,7 @@ export const DataTable = ({
     selectedRecord,
     onAddRecord,
     onSearch,
+    onDeleteByKeyPrefix,
     onReload,
     namespace,
     setName,
@@ -37,6 +38,7 @@ export const DataTable = ({
     const canAdd = Boolean(namespace && onAddRecord);
     const showLocationColumns = !setName || safeRecords.some(record => record.namespace !== namespace || record.setName !== setName);
     const usesDirectKeyLookup = searchField === 'KEY' && searchType === 'EXACT';
+    const canDeleteByKeyPrefix = Boolean(namespace && onDeleteByKeyPrefix && searchField === 'KEY' && searchType === 'PREFIX');
 
     const paginatedRecords = useMemo(() => {
         return safeRecords.slice(startIndex, endIndex);
@@ -77,6 +79,34 @@ export const DataTable = ({
                 maxRecords: scanLimit,
             });
         }
+    };
+
+    const handleDeleteByKeyPrefix = async () => {
+        if (!canDeleteByKeyPrefix) {
+            return;
+        }
+
+        const keyPrefix = searchPattern.trim();
+        if (!keyPrefix) {
+            return;
+        }
+
+        const scopeLabel = setName ? `${namespace}.${setName}` : `${namespace} / all sets`;
+        const typedPrefix = window.prompt(
+            `Delete every record in ${scopeLabel} whose stored user key starts with "${keyPrefix}"?\n\n` +
+            `This scans the full selected scope and cannot be undone. Type the prefix to confirm:`
+        );
+
+        if (typedPrefix !== keyPrefix) {
+            return;
+        }
+
+        await onDeleteByKeyPrefix({
+            keyPrefix,
+            caseSensitive,
+        });
+        setSearchActive(false);
+        setCurrentPage(1);
     };
 
     const handleKeyDown = (e) => {
@@ -218,6 +248,16 @@ export const DataTable = ({
                         >
                             <FiSearch /> Search
                         </button>
+                        {canDeleteByKeyPrefix && (
+                            <button
+                                className="btn-danger-action"
+                                onClick={handleDeleteByKeyPrefix}
+                                disabled={!searchPattern.trim() || isSearching}
+                                title="Scan the full selected scope and delete records whose stored user key starts with this prefix"
+                            >
+                                <FiTrash2 /> Delete prefix
+                            </button>
+                        )}
                         {usesDirectKeyLookup && (
                             <span className="search-hint">Direct key lookup - no scan</span>
                         )}

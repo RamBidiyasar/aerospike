@@ -187,6 +187,7 @@
 }
 
 .btn-search,
+.btn-danger-action,
 .btn-clear-search {
     padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-md);
@@ -215,9 +216,21 @@
 }
 
 .btn-search:disabled,
+.btn-danger-action:disabled,
 .btn-clear-search:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.btn-danger-action {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--color-error);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.btn-danger-action:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: var(--color-error);
 }
 
 .btn-clear-search {

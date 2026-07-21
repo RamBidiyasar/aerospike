@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -551,6 +552,69 @@ public class AerospikeService {
         return keys;
     }
 
+    public DeleteByKeyPrefixResponse deleteByKeyPrefix(DeleteByKeyPrefixRequest request) {
+        ensureConnected();
+        if (request == null) {
+            throw new IllegalArgumentException("Delete by key prefix request is required");
+        }
+        validateNamespace(request.getNamespace());
+        if (request.getKeyPrefix() == null || request.getKeyPrefix().isBlank()) {
+            throw new IllegalArgumentException("Key prefix is required");
+        }
+
+        String namespace = request.getNamespace();
+        String normalizedSetName = normalizeSetName(request.getSetName());
+        String keyPrefix = request.getKeyPrefix();
+        boolean caseSensitive = !Boolean.FALSE.equals(request.getCaseSensitive());
+        String comparablePrefix = normalizeComparableText(keyPrefix, caseSensitive);
+        AtomicLong scannedRecords = new AtomicLong();
+        AtomicLong matchedRecords = new AtomicLong();
+        AtomicLong deletedRecords = new AtomicLong();
+        AtomicLong failedDeletes = new AtomicLong();
+        AtomicLong skippedRecordsWithoutUserKey = new AtomicLong();
+
+        ScanPolicy scanPolicy = new ScanPolicy();
+        scanPolicy.includeBinData = false;
+
+        try {
+            client.scanAll(scanPolicy, namespace, normalizedSetName, (key, record) -> {
+                scannedRecords.incrementAndGet();
+                if (key.userKey == null) {
+                    skippedRecordsWithoutUserKey.incrementAndGet();
+                    return;
+                }
+
+                String userKey = String.valueOf(key.userKey.getObject());
+                if (!normalizeComparableText(userKey, caseSensitive).startsWith(comparablePrefix)) {
+                    return;
+                }
+
+                matchedRecords.incrementAndGet();
+                if (client.delete(null, key)) {
+                    deletedRecords.incrementAndGet();
+                } else {
+                    failedDeletes.incrementAndGet();
+                }
+            });
+
+            return DeleteByKeyPrefixResponse.builder()
+                    .namespace(namespace)
+                    .setName(normalizedSetName)
+                    .keyPrefix(keyPrefix)
+                    .caseSensitive(caseSensitive)
+                    .scannedRecords(scannedRecords.get())
+                    .matchedRecords(matchedRecords.get())
+                    .deletedRecords(deletedRecords.get())
+                    .failedDeletes(failedDeletes.get())
+                    .skippedRecordsWithoutUserKey(skippedRecordsWithoutUserKey.get())
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to delete records by key prefix from {}.{} with prefix {}",
+                    namespace, normalizedSetName, keyPrefix, e);
+            throw new RuntimeException("Failed to delete records by key prefix: " + e.getMessage(), e);
+        }
+    }
+
     public RecordData getRecord(String namespace, String setName, String keyValue) {
         ensureConnected();
 
@@ -837,8 +901,8 @@ public class AerospikeService {
     }
 
     private boolean textMatches(String value, String pattern, SearchRequest.SearchType searchType, boolean caseSensitive) {
-        String haystack = caseSensitive ? value : value.toLowerCase(Locale.ROOT);
-        String needle = caseSensitive ? pattern : pattern.toLowerCase(Locale.ROOT);
+        String haystack = normalizeComparableText(value, caseSensitive);
+        String needle = normalizeComparableText(pattern, caseSensitive);
 
         return switch (searchType) {
             case EXACT -> haystack.equals(needle);
@@ -846,6 +910,10 @@ public class AerospikeService {
             case SUFFIX -> haystack.endsWith(needle);
             case CONTAINS -> haystack.contains(needle);
         };
+    }
+
+    private String normalizeComparableText(String value, boolean caseSensitive) {
+        return caseSensitive ? value : value.toLowerCase(Locale.ROOT);
     }
 
     private Map<String, Object> parseInfoString(String infoStr) {

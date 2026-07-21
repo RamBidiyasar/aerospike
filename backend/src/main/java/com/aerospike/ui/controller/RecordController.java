@@ -1,5 +1,7 @@
 package com.aerospike.ui.controller;
 
+import com.aerospike.ui.model.DeleteByKeyPrefixRequest;
+import com.aerospike.ui.model.DeleteByKeyPrefixResponse;
 import com.aerospike.ui.model.RecordData;
 import com.aerospike.ui.model.SearchRequest;
 import com.aerospike.ui.service.AerospikeService;
@@ -30,6 +32,13 @@ public class RecordController {
     public ResponseEntity<List<RecordData>> searchRecords(@RequestBody SearchRequest searchRequest) {
         List<RecordData> records = aerospikeService.searchRecords(searchRequest);
         return ResponseEntity.ok(records);
+    }
+
+    @PostMapping("/delete-by-key-prefix")
+    public ResponseEntity<DeleteByKeyPrefixResponse> deleteByKeyPrefix(
+            @RequestBody DeleteByKeyPrefixRequest request) {
+        DeleteByKeyPrefixResponse response = aerospikeService.deleteByKeyPrefix(request);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{namespace}/{setName}/{key}")
