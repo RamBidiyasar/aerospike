@@ -462,6 +462,10 @@ public class AerospikeService {
         boolean caseSensitive = Boolean.TRUE.equals(searchRequest.getCaseSensitive());
         String normalizedSetName = normalizeSetName(searchRequest.getSetName());
 
+        if (isExactKeyLookup(pattern, searchType, searchField)) {
+            return findRecordsByExactKey(searchRequest.getNamespace(), normalizedSetName, pattern, maxResults);
+        }
+
         try {
             client.scanAll(scanPolicy, searchRequest.getNamespace(),
                     normalizedSetName, (key, record) -> {
@@ -480,6 +484,71 @@ public class AerospikeService {
                     searchRequest.getNamespace(), normalizedSetName, pattern, e);
             throw new RuntimeException("Failed to search records: " + e.getMessage(), e);
         }
+    }
+
+    private boolean isExactKeyLookup(
+            String pattern,
+            SearchRequest.SearchType searchType,
+            SearchRequest.SearchField searchField) {
+        return searchField == SearchRequest.SearchField.KEY
+                && searchType == SearchRequest.SearchType.EXACT
+                && pattern != null
+                && !pattern.isBlank();
+    }
+
+    private List<RecordData> findRecordsByExactKey(String namespace, String setName, String keyValue, int maxResults) {
+        List<RecordData> records = new ArrayList<>();
+        Set<String> seenDigests = new HashSet<>();
+
+        try {
+            for (String lookupSetName : resolveExactKeyLookupSetNames(namespace, setName)) {
+                for (Key key : buildExactLookupKeys(namespace, lookupSetName, keyValue)) {
+                    com.aerospike.client.Record record = client.get(null, key);
+                    if (record == null || !seenDigests.add(formatDigest(key.digest))) {
+                        continue;
+                    }
+
+                    records.add(toRecordData(key, record));
+                    if (records.size() >= maxResults) {
+                        return records;
+                    }
+                }
+            }
+
+            return records;
+        } catch (Exception e) {
+            log.error("Failed exact key lookup in {}.{} for key {}",
+                    namespace, setName == null ? "*" : setName, keyValue, e);
+            throw new RuntimeException("Failed exact key lookup: " + e.getMessage(), e);
+        }
+    }
+
+    private List<String> resolveExactKeyLookupSetNames(String namespace, String setName) {
+        if (setName != null) {
+            return List.of(setName);
+        }
+
+        List<String> setNames = getSets(namespace).stream()
+                .map(SetInfo::getSetName)
+                .filter(Objects::nonNull)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        setNames.add(null);
+        return setNames;
+    }
+
+    private List<Key> buildExactLookupKeys(String namespace, String setName, String keyValue) {
+        List<Key> keys = new ArrayList<>();
+        keys.add(new Key(namespace, setName, keyValue));
+
+        try {
+            keys.add(new Key(namespace, setName, Long.parseLong(keyValue)));
+        } catch (NumberFormatException ignored) {
+            // Non-numeric keys only need the literal string lookup.
+        }
+
+        return keys;
     }
 
     public RecordData getRecord(String namespace, String setName, String keyValue) {
@@ -751,6 +820,10 @@ public class AerospikeService {
 
     private String formatKey(Key key) {
         return key.userKey != null ? String.valueOf(key.userKey.getObject()) : Arrays.toString(key.digest);
+    }
+
+    private String formatDigest(byte[] digest) {
+        return digest == null ? "" : Arrays.toString(digest);
     }
 
     private String stringifyValue(Object value) {

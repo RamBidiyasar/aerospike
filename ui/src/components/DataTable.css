@@ -179,6 +179,13 @@
     white-space: nowrap;
 }
 
+.search-hint {
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 .btn-search,
 .btn-clear-search {
     padding: var(--spacing-sm) var(--spacing-md);
