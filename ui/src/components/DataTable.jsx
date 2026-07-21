@@ -36,6 +36,7 @@ export const DataTable = ({
     const canSearch = Boolean(namespace && onSearch);
     const canAdd = Boolean(namespace && onAddRecord);
     const showLocationColumns = !setName || safeRecords.some(record => record.namespace !== namespace || record.setName !== setName);
+    const usesDirectKeyLookup = searchField === 'KEY' && searchType === 'EXACT';
 
     const paginatedRecords = useMemo(() => {
         return safeRecords.slice(startIndex, endIndex);
@@ -58,7 +59,7 @@ export const DataTable = ({
             searchField,
             caseSensitive,
             maxResults,
-            maxScanRecords: Math.max(scanLimit, maxResults),
+            maxScanRecords: usesDirectKeyLookup ? maxResults : Math.max(scanLimit, maxResults),
         });
     };
 
@@ -188,8 +189,8 @@ export const DataTable = ({
                             className="search-type-select compact"
                             value={scanLimit}
                             onChange={(e) => setScanLimit(Number(e.target.value))}
-                            disabled={isSearching}
-                            title="Records to scan when loading this scope"
+                            disabled={isSearching || usesDirectKeyLookup}
+                            title={usesDirectKeyLookup ? 'Exact key searches use direct lookup and do not scan records' : 'Records to scan when loading this scope'}
                         >
                             <option value={50}>Scan 50</option>
                             <option value={100}>Scan 100</option>
@@ -217,6 +218,9 @@ export const DataTable = ({
                         >
                             <FiSearch /> Search
                         </button>
+                        {usesDirectKeyLookup && (
+                            <span className="search-hint">Direct key lookup - no scan</span>
+                        )}
                         <button
                             className="btn-clear-search"
                             onClick={handleClearSearch}
