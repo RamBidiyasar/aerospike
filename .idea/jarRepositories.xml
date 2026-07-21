@@ -2,6 +2,11 @@
 <project version="4">
   <component name="RemoteRepositoriesConfiguration">
     <remote-repository>
+      <option name="id" value="airtel-tv-mvn" />
+      <option name="name" value="Airtel TV Maven Repository" />
+      <option name="url" value="http://nexus.wynkster.io/repository/airtel-tv-mvn/" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Central Repository" />
       <option name="url" value="https://repo.maven.apache.org/maven2" />
@@ -15,6 +20,16 @@
       <option name="id" value="jboss.community" />
       <option name="name" value="JBoss Community repository" />
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="airtel-tv-mvn-snapshots" />
+      <option name="name" value="Airtel TV Maven Repository" />
+      <option name="url" value="http://nexus.wynkster.io/repository/airtel-tv-mvn-snapshots/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="airtel-tv-old-repo" />
+      <option name="name" value="Airtel TV OLD Maven Repository" />
+      <option name="url" value="http://nexus.wynkster.io/repository/airtel-tv-old-repo/" />
     </remote-repository>
   </component>
 </project>
