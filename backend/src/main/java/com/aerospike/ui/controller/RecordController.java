@@ -38,7 +38,13 @@ public class RecordController {
     public ResponseEntity<DeleteByKeyPrefixResponse> deleteByKeyPrefix(
             @RequestBody DeleteByKeyPrefixRequest request) {
         DeleteByKeyPrefixResponse response = aerospikeService.deleteByKeyPrefix(request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.accepted().body(response);
+    }
+
+    @GetMapping("/delete-by-key-prefix/{jobId}")
+    public ResponseEntity<DeleteByKeyPrefixResponse> getDeleteByKeyPrefixStatus(
+            @PathVariable String jobId) {
+        return ResponseEntity.ok(aerospikeService.getDeleteByKeyPrefixStatus(jobId));
     }
 
     @GetMapping("/{namespace}/{setName}/{key}")

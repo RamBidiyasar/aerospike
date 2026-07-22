@@ -1,7 +1,66 @@
 import { useMemo, useState } from 'react';
-import { FiChevronLeft, FiChevronRight, FiEdit2, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
+import {
+    FiActivity,
+    FiAlertCircle,
+    FiCheckCircle,
+    FiChevronLeft,
+    FiChevronRight,
+    FiClock,
+    FiEdit2,
+    FiLoader,
+    FiPlus,
+    FiRefreshCw,
+    FiSearch,
+    FiTrash2,
+    FiX,
+} from 'react-icons/fi';
 import { LoadingOverlay } from './LoadingOverlay';
 import './DataTable.css';
+
+const formatCount = (value) => Number(value || 0).toLocaleString();
+
+const formatElapsed = (elapsedMs) => {
+    const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs || 0) / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    }
+    if (minutes > 0) {
+        return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+    }
+    return `${seconds}s`;
+};
+
+const getPrefixDeletePresentation = (status) => {
+    switch (status) {
+        case 'COMPLETED':
+            return {
+                title: 'Prefix delete complete',
+                Icon: FiCheckCircle,
+                badge: 'Completed',
+            };
+        case 'FAILED':
+            return {
+                title: 'Prefix delete failed',
+                Icon: FiAlertCircle,
+                badge: 'Failed',
+            };
+        case 'QUEUED':
+            return {
+                title: 'Prefix delete queued',
+                Icon: FiLoader,
+                badge: 'Queued',
+            };
+        default:
+            return {
+                title: 'Prefix delete in progress',
+                Icon: FiActivity,
+                badge: 'Running',
+            };
+    }
+};
 
 export const DataTable = ({
     records,
@@ -11,6 +70,8 @@ export const DataTable = ({
     onAddRecord,
     onSearch,
     onDeleteByKeyPrefix,
+    prefixDeleteStatus,
+    onDismissPrefixDeleteStatus,
     onReload,
     namespace,
     setName,
@@ -27,6 +88,7 @@ export const DataTable = ({
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
     const [searchActive, setSearchActive] = useState(false);
+    const [isPrefixDeleting, setIsPrefixDeleting] = useState(false);
 
     const safeRecords = useMemo(() => records || [], [records]);
     const totalRecords = safeRecords.length;
@@ -39,6 +101,19 @@ export const DataTable = ({
     const showLocationColumns = !setName || safeRecords.some(record => record.namespace !== namespace || record.setName !== setName);
     const usesDirectKeyLookup = searchField === 'KEY' && searchType === 'EXACT';
     const canDeleteByKeyPrefix = Boolean(namespace && onDeleteByKeyPrefix && searchField === 'KEY' && searchType === 'PREFIX');
+    const prefixDeleteRunning = prefixDeleteStatus?.status === 'QUEUED' || prefixDeleteStatus?.status === 'RUNNING';
+    const scannedForProgress = Number(prefixDeleteStatus?.scannedRecords || 0);
+    const totalForProgress = Number(prefixDeleteStatus?.totalRecordsEstimate || 0);
+    const matchedForProgress = Number(prefixDeleteStatus?.matchedRecords || 0);
+    const deletedForProgress = Number(prefixDeleteStatus?.deletedRecords || 0);
+    const scanProgressPercent = prefixDeleteStatus?.status === 'COMPLETED' || prefixDeleteStatus?.phase === 'DONE'
+        ? 100
+        : totalForProgress > 0
+            ? Math.min(100, Math.round((scannedForProgress * 100) / totalForProgress))
+            : 0;
+    const deleteProgressPercent = matchedForProgress > 0
+        ? Math.min(100, Math.round((deletedForProgress * 100) / matchedForProgress))
+        : (prefixDeleteStatus?.status === 'COMPLETED' ? 100 : 0);
 
     const paginatedRecords = useMemo(() => {
         return safeRecords.slice(startIndex, endIndex);
@@ -82,7 +157,7 @@ export const DataTable = ({
     };
 
     const handleDeleteByKeyPrefix = async () => {
-        if (!canDeleteByKeyPrefix) {
+        if (!canDeleteByKeyPrefix || isPrefixDeleting || prefixDeleteRunning) {
             return;
         }
 
@@ -101,12 +176,17 @@ export const DataTable = ({
             return;
         }
 
-        await onDeleteByKeyPrefix({
-            keyPrefix,
-            caseSensitive,
-        });
-        setSearchActive(false);
-        setCurrentPage(1);
+        setIsPrefixDeleting(true);
+        try {
+            await onDeleteByKeyPrefix({
+                keyPrefix,
+                caseSensitive,
+            });
+            setSearchActive(false);
+            setCurrentPage(1);
+        } finally {
+            setIsPrefixDeleting(false);
+        }
     };
 
     const handleKeyDown = (e) => {
@@ -154,17 +234,158 @@ export const DataTable = ({
 
                 <div className="table-actions">
                     {onReload && (
-                        <button className="btn-icon-action" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching || !namespace} title="Reload records">
+                        <button className="btn-icon-action" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching || !namespace || prefixDeleteRunning} title="Reload records">
                             <FiRefreshCw className={isSearching ? 'spinning' : ''} />
                         </button>
                     )}
                     {canAdd && (
-                        <button className="btn-add-record" onClick={onAddRecord}>
+                        <button className="btn-add-record" onClick={onAddRecord} disabled={prefixDeleteRunning}>
                             <FiPlus /> Add Record
                         </button>
                     )}
                 </div>
             </div>
+
+            {prefixDeleteStatus && (() => {
+                const presentation = getPrefixDeletePresentation(prefixDeleteStatus.status);
+                const StatusIcon = presentation.Icon;
+                const phaseLabel = String(prefixDeleteStatus.phase || 'SCANNING')
+                    .toLowerCase()
+                    .replace(/_/g, ' ');
+                const scopeLabel = prefixDeleteStatus.setName
+                    ? `${prefixDeleteStatus.namespace}.${prefixDeleteStatus.setName}`
+                    : `${prefixDeleteStatus.namespace || 'namespace'} / all sets`;
+
+                return (
+                    <section
+                        className={`prefix-delete-panel status-${String(prefixDeleteStatus.status || 'RUNNING').toLowerCase()}`}
+                        aria-live="polite"
+                    >
+                        <div className="prefix-delete-panel-glow" aria-hidden="true" />
+
+                        <div className="prefix-delete-panel-top">
+                            <div className="prefix-delete-identity">
+                                <div className="prefix-delete-icon-wrap">
+                                    <StatusIcon className={prefixDeleteRunning ? 'spinning-slow' : ''} />
+                                </div>
+                                <div className="prefix-delete-copy">
+                                    <div className="prefix-delete-title-row">
+                                        <h3>{presentation.title}</h3>
+                                        <span className="prefix-delete-status-pill">{presentation.badge}</span>
+                                        <span className="prefix-delete-phase-pill">{phaseLabel}</span>
+                                    </div>
+                                    <p className="prefix-delete-subtitle">
+                                        {prefixDeleteStatus.message
+                                            || `Deleting keys in ${scopeLabel} that start with "${prefixDeleteStatus.keyPrefix || ''}".`}
+                                    </p>
+                                    <div className="prefix-delete-meta-row">
+                                        <span className="prefix-delete-chip">
+                                            Prefix <code>{prefixDeleteStatus.keyPrefix || '—'}</code>
+                                        </span>
+                                        <span className="prefix-delete-chip subtle">{scopeLabel}</span>
+                                        {prefixDeleteStatus.nodeCount != null && (
+                                            <span className="prefix-delete-chip subtle">
+                                                {prefixDeleteStatus.nodeCount} nodes · {prefixDeleteStatus.workerCount || 0} workers
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="prefix-delete-top-actions">
+                                <div className="prefix-delete-elapsed">
+                                    <FiClock />
+                                    <span>{formatElapsed(prefixDeleteStatus.elapsedMs)}</span>
+                                </div>
+                                {(prefixDeleteStatus.status === 'COMPLETED' || prefixDeleteStatus.status === 'FAILED') && onDismissPrefixDeleteStatus && (
+                                    <button
+                                        className="prefix-delete-dismiss"
+                                        onClick={onDismissPrefixDeleteStatus}
+                                        title="Dismiss status"
+                                    >
+                                        <FiX />
+                                        <span>Dismiss</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="prefix-delete-progress-block">
+                            <div className="prefix-delete-progress-labels">
+                                <span>
+                                    {totalForProgress > 0
+                                        ? `${formatCount(scannedForProgress)} of ${formatCount(totalForProgress)} records scanned`
+                                        : `${formatCount(scannedForProgress)} records scanned`}
+                                </span>
+                                <strong>{totalForProgress > 0 || !prefixDeleteRunning ? `${scanProgressPercent}%` : '—'}</strong>
+                            </div>
+                            <div className="prefix-delete-progress-track" aria-hidden="true">
+                                <div
+                                    className={`prefix-delete-progress-fill ${prefixDeleteRunning ? 'is-active' : ''}`}
+                                    style={{
+                                        width: `${Math.max(
+                                            scanProgressPercent,
+                                            prefixDeleteRunning && totalForProgress === 0 ? 12 : 0
+                                        )}%`,
+                                    }}
+                                />
+                            </div>
+
+                            {(matchedForProgress > 0 || deletedForProgress > 0) && (
+                                <div className="prefix-delete-secondary-progress">
+                                    <div className="prefix-delete-progress-labels compact">
+                                        <span>
+                                            {formatCount(deletedForProgress)} of {formatCount(matchedForProgress)} matched deleted
+                                        </span>
+                                        <strong>{deleteProgressPercent}%</strong>
+                                    </div>
+                                    <div className="prefix-delete-progress-track secondary" aria-hidden="true">
+                                        <div
+                                            className="prefix-delete-progress-fill secondary"
+                                            style={{ width: `${deleteProgressPercent}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="prefix-delete-metric-grid">
+                            <div className="prefix-delete-metric">
+                                <span>Total in scope</span>
+                                <strong>{totalForProgress > 0 ? formatCount(totalForProgress) : '—'}</strong>
+                                <em>cluster estimate</em>
+                            </div>
+                            <div className="prefix-delete-metric">
+                                <span>Scanned</span>
+                                <strong>{formatCount(prefixDeleteStatus.scannedRecords)}</strong>
+                                {totalForProgress > 0 && (
+                                    <em>{scanProgressPercent}% of total</em>
+                                )}
+                            </div>
+                            <div className="prefix-delete-metric accent">
+                                <span>Matched</span>
+                                <strong>{formatCount(prefixDeleteStatus.matchedRecords)}</strong>
+                            </div>
+                            <div className="prefix-delete-metric success">
+                                <span>Deleted</span>
+                                <strong>{formatCount(prefixDeleteStatus.deletedRecords)}</strong>
+                                {matchedForProgress > 0 && (
+                                    <em>{deleteProgressPercent}% of matched</em>
+                                )}
+                            </div>
+                            <div className="prefix-delete-metric danger">
+                                <span>Failed</span>
+                                <strong>{formatCount(prefixDeleteStatus.failedDeletes)}</strong>
+                            </div>
+                            <div className="prefix-delete-metric">
+                                <span>Skipped</span>
+                                <strong>{formatCount(prefixDeleteStatus.skippedRecordsWithoutUserKey)}</strong>
+                                <em>no stored user key</em>
+                            </div>
+                        </div>
+                    </section>
+                );
+            })()}
 
             {canSearch && (
                 <div className="search-panel">
@@ -177,7 +398,7 @@ export const DataTable = ({
                             value={searchPattern}
                             onChange={(e) => setSearchPattern(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            disabled={isSearching}
+                            disabled={isSearching || prefixDeleteRunning}
                         />
                     </div>
 
@@ -186,7 +407,7 @@ export const DataTable = ({
                             className="search-type-select"
                             value={searchField}
                             onChange={(e) => setSearchField(e.target.value)}
-                            disabled={isSearching}
+                            disabled={isSearching || prefixDeleteRunning}
                             title="Search field"
                         >
                             <option value="ALL">All fields</option>
@@ -198,7 +419,7 @@ export const DataTable = ({
                             className="search-type-select"
                             value={searchType}
                             onChange={(e) => setSearchType(e.target.value)}
-                            disabled={isSearching}
+                            disabled={isSearching || prefixDeleteRunning}
                             title="Match type"
                         >
                             <option value="CONTAINS">Contains</option>
@@ -211,7 +432,7 @@ export const DataTable = ({
                                 type="checkbox"
                                 checked={caseSensitive}
                                 onChange={(e) => setCaseSensitive(e.target.checked)}
-                                disabled={isSearching}
+                                disabled={isSearching || prefixDeleteRunning}
                             />
                             Case sensitive
                         </label>
@@ -219,7 +440,7 @@ export const DataTable = ({
                             className="search-type-select compact"
                             value={scanLimit}
                             onChange={(e) => setScanLimit(Number(e.target.value))}
-                            disabled={isSearching || usesDirectKeyLookup}
+                            disabled={isSearching || usesDirectKeyLookup || prefixDeleteRunning}
                             title={usesDirectKeyLookup ? 'Exact key searches use direct lookup and do not scan records' : 'Records to scan when loading this scope'}
                         >
                             <option value={50}>Scan 50</option>
@@ -232,7 +453,7 @@ export const DataTable = ({
                             className="search-type-select compact"
                             value={maxResults}
                             onChange={(e) => setMaxResults(Number(e.target.value))}
-                            disabled={isSearching}
+                            disabled={isSearching || prefixDeleteRunning}
                             title="Maximum search results"
                         >
                             <option value={50}>50 results</option>
@@ -243,7 +464,7 @@ export const DataTable = ({
                         <button
                             className="btn-search"
                             onClick={handleSearch}
-                            disabled={!searchPattern.trim() || isSearching}
+                            disabled={!searchPattern.trim() || isSearching || prefixDeleteRunning}
                             title="Search"
                         >
                             <FiSearch /> Search
@@ -252,10 +473,10 @@ export const DataTable = ({
                             <button
                                 className="btn-danger-action"
                                 onClick={handleDeleteByKeyPrefix}
-                                disabled={!searchPattern.trim() || isSearching}
+                                disabled={!searchPattern.trim() || isSearching || isPrefixDeleting || prefixDeleteRunning}
                                 title="Scan the full selected scope and delete records whose stored user key starts with this prefix"
                             >
-                                <FiTrash2 /> Delete prefix
+                                <FiTrash2 /> {prefixDeleteRunning ? 'Deleting...' : 'Delete prefix'}
                             </button>
                         )}
                         {usesDirectKeyLookup && (
@@ -264,7 +485,7 @@ export const DataTable = ({
                         <button
                             className="btn-clear-search"
                             onClick={handleClearSearch}
-                            disabled={isSearching}
+                            disabled={isSearching || prefixDeleteRunning}
                             title="Clear search"
                         >
                             <FiX /> Clear
@@ -281,12 +502,12 @@ export const DataTable = ({
                         <p>{namespace ? 'Try a broader search, reload this scope, or add a new record.' : 'Select a namespace, all sets, or a single set from the browser.'}</p>
                         <div className="empty-actions">
                             {onReload && namespace && (
-                                <button className="btn-clear-search" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching}>
+                                <button className="btn-clear-search" onClick={() => onReload({ maxRecords: scanLimit })} disabled={isSearching || prefixDeleteRunning}>
                                     <FiRefreshCw /> Reload
                                 </button>
                             )}
                             {canAdd && (
-                                <button className="btn-add-first" onClick={onAddRecord}>
+                                <button className="btn-add-first" onClick={onAddRecord} disabled={prefixDeleteRunning}>
                                     <FiPlus /> Add First Record
                                 </button>
                             )}
@@ -338,6 +559,7 @@ export const DataTable = ({
                                                         onSelectRecord(record);
                                                     }}
                                                     title="Edit"
+                                                    disabled={prefixDeleteRunning}
                                                 >
                                                     <FiEdit2 />
                                                 </button>
@@ -350,6 +572,7 @@ export const DataTable = ({
                                                         }
                                                     }}
                                                     title="Delete"
+                                                    disabled={prefixDeleteRunning}
                                                 >
                                                     <FiTrash2 />
                                                 </button>
@@ -365,7 +588,7 @@ export const DataTable = ({
                         <div className="pagination-controls">
                             <div className="page-size-selector">
                                 <label>Show:</label>
-                                <select value={pageSize} onChange={(e) => handlePageSizeChange(Number(e.target.value))}>
+                                <select value={pageSize} onChange={(e) => handlePageSizeChange(Number(e.target.value))} disabled={prefixDeleteRunning}>
                                     <option value={10}>10</option>
                                     <option value={20}>20</option>
                                     <option value={50}>50</option>
@@ -378,7 +601,7 @@ export const DataTable = ({
                                 <button
                                     className="page-btn"
                                     onClick={() => handlePageChange(activePage - 1)}
-                                    disabled={activePage === 1}
+                                    disabled={activePage === 1 || prefixDeleteRunning}
                                     title="Previous page"
                                 >
                                     <FiChevronLeft />
@@ -391,7 +614,7 @@ export const DataTable = ({
                                 <button
                                     className="page-btn"
                                     onClick={() => handlePageChange(activePage + 1)}
-                                    disabled={activePage === totalPages}
+                                    disabled={activePage === totalPages || prefixDeleteRunning}
                                     title="Next page"
                                 >
                                     <FiChevronRight />

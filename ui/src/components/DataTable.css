@@ -68,6 +68,467 @@
     flex-shrink: 0;
 }
 
+.prefix-delete-panel {
+    position: relative;
+    overflow: hidden;
+    margin: var(--spacing-md) var(--spacing-lg) 0;
+    padding: 1.15rem 1.25rem 1.2rem;
+    border-radius: 18px;
+    border: 1px solid rgba(249, 115, 22, 0.28);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.45)),
+        radial-gradient(circle at top right, rgba(249, 115, 22, 0.16), transparent 42%),
+        var(--color-bg-elevated);
+    box-shadow: var(--shadow-md);
+    color: var(--color-text-primary);
+    animation: prefixDeleteIn 0.35s ease-out;
+}
+
+[data-theme="dark"] .prefix-delete-panel {
+    background:
+        linear-gradient(180deg, rgba(31, 35, 41, 0.95), rgba(19, 21, 26, 0.92)),
+        radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 42%),
+        var(--color-bg-elevated);
+    border-color: rgba(249, 115, 22, 0.32);
+}
+
+.prefix-delete-panel.status-completed {
+    border-color: rgba(16, 185, 129, 0.32);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.45)),
+        radial-gradient(circle at top right, rgba(16, 185, 129, 0.16), transparent 42%),
+        var(--color-bg-elevated);
+}
+
+[data-theme="dark"] .prefix-delete-panel.status-completed {
+    background:
+        linear-gradient(180deg, rgba(31, 35, 41, 0.95), rgba(19, 21, 26, 0.92)),
+        radial-gradient(circle at top right, rgba(16, 185, 129, 0.18), transparent 42%),
+        var(--color-bg-elevated);
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.prefix-delete-panel.status-failed {
+    border-color: rgba(239, 68, 68, 0.35);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.45)),
+        radial-gradient(circle at top right, rgba(239, 68, 68, 0.16), transparent 42%),
+        var(--color-bg-elevated);
+}
+
+[data-theme="dark"] .prefix-delete-panel.status-failed {
+    background:
+        linear-gradient(180deg, rgba(31, 35, 41, 0.95), rgba(19, 21, 26, 0.92)),
+        radial-gradient(circle at top right, rgba(239, 68, 68, 0.18), transparent 42%),
+        var(--color-bg-elevated);
+    border-color: rgba(239, 68, 68, 0.38);
+}
+
+.prefix-delete-panel-glow {
+    position: absolute;
+    inset: auto -20% -55% auto;
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    background: rgba(249, 115, 22, 0.12);
+    filter: blur(40px);
+    pointer-events: none;
+}
+
+.prefix-delete-panel.status-completed .prefix-delete-panel-glow {
+    background: rgba(16, 185, 129, 0.14);
+}
+
+.prefix-delete-panel.status-failed .prefix-delete-panel-glow {
+    background: rgba(239, 68, 68, 0.14);
+}
+
+.prefix-delete-panel-top {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+}
+
+.prefix-delete-identity {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    min-width: 0;
+}
+
+.prefix-delete-icon-wrap {
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #ea580c;
+    background: rgba(249, 115, 22, 0.14);
+    border: 1px solid rgba(249, 115, 22, 0.28);
+    font-size: 1.25rem;
+}
+
+.prefix-delete-panel.status-completed .prefix-delete-icon-wrap {
+    color: var(--color-success);
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.28);
+}
+
+.prefix-delete-panel.status-failed .prefix-delete-icon-wrap {
+    color: var(--color-error);
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.28);
+}
+
+.prefix-delete-panel.status-running .prefix-delete-icon-wrap,
+.prefix-delete-panel.status-queued .prefix-delete-icon-wrap {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.35);
+    animation: prefixDeletePulse 2s ease-out infinite;
+}
+
+.prefix-delete-copy {
+    min-width: 0;
+}
+
+.prefix-delete-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.55rem;
+}
+
+.prefix-delete-title-row h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.prefix-delete-status-pill,
+.prefix-delete-phase-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.prefix-delete-status-pill {
+    color: #c2410c;
+    background: rgba(249, 115, 22, 0.14);
+    border: 1px solid rgba(249, 115, 22, 0.25);
+}
+
+.prefix-delete-panel.status-completed .prefix-delete-status-pill {
+    color: #047857;
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+.prefix-delete-panel.status-failed .prefix-delete-status-pill {
+    color: #b91c1c;
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+.prefix-delete-phase-pill {
+    color: var(--color-text-secondary);
+    background: rgba(148, 163, 184, 0.14);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.prefix-delete-subtitle {
+    margin: 0.35rem 0 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+}
+
+.prefix-delete-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.7rem;
+}
+
+.prefix-delete-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 100%;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    color: var(--color-text-primary);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.prefix-delete-chip.subtle {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.2);
+    color: var(--color-text-secondary);
+}
+
+.prefix-delete-chip code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--color-accent-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
+.prefix-delete-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-shrink: 0;
+}
+
+.prefix-delete-elapsed {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.prefix-delete-dismiss {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.prefix-delete-dismiss:hover {
+    border-color: var(--color-border-hover);
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
+}
+
+.prefix-delete-progress-block {
+    position: relative;
+    z-index: 1;
+    margin-top: 1rem;
+}
+
+.prefix-delete-progress-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+    margin-bottom: 0.45rem;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+}
+
+.prefix-delete-progress-labels strong {
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-primary);
+}
+
+.prefix-delete-progress-track {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.22);
+    overflow: hidden;
+}
+
+.prefix-delete-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #fb923c, #f97316 45%, #ef4444);
+    box-shadow: 0 0 16px rgba(249, 115, 22, 0.35);
+    transition: width 0.45s ease;
+}
+
+.prefix-delete-progress-fill.is-active {
+    background-size: 200% 100%;
+    animation: prefixDeleteShimmer 1.6s linear infinite;
+}
+
+.prefix-delete-panel.status-completed .prefix-delete-progress-fill {
+    background: linear-gradient(90deg, #34d399, #10b981);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
+}
+
+.prefix-delete-panel.status-failed .prefix-delete-progress-fill {
+    background: linear-gradient(90deg, #f87171, #ef4444);
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}
+
+.prefix-delete-secondary-progress {
+    margin-top: 0.75rem;
+}
+
+.prefix-delete-progress-labels.compact {
+    margin-bottom: 0.35rem;
+    font-size: 0.74rem;
+}
+
+.prefix-delete-progress-labels.compact strong {
+    font-size: 0.82rem;
+}
+
+.prefix-delete-progress-track.secondary {
+    height: 6px;
+    background: rgba(148, 163, 184, 0.16);
+}
+
+.prefix-delete-progress-fill.secondary {
+    background: linear-gradient(90deg, #34d399, #10b981);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.prefix-delete-metric-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+
+.prefix-delete-metric {
+    padding: 0.75rem 0.8rem;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    backdrop-filter: blur(8px);
+    min-width: 0;
+}
+
+[data-theme="dark"] .prefix-delete-metric {
+    background: rgba(15, 18, 24, 0.55);
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+.prefix-delete-metric span {
+    display: block;
+    color: var(--color-text-tertiary);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.prefix-delete-metric strong {
+    display: block;
+    margin-top: 0.28rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.prefix-delete-metric em {
+    display: block;
+    margin-top: 0.2rem;
+    font-style: normal;
+    color: var(--color-text-tertiary);
+    font-size: 0.68rem;
+}
+
+.prefix-delete-metric.accent strong {
+    color: var(--color-accent-primary);
+}
+
+.prefix-delete-metric.success strong {
+    color: var(--color-success);
+}
+
+.prefix-delete-metric.danger strong {
+    color: var(--color-error);
+}
+
+.spinning-slow {
+    animation: spin 1.4s linear infinite;
+}
+
+@keyframes prefixDeleteIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes prefixDeletePulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.35);
+    }
+
+    70% {
+        box-shadow: 0 0 0 12px rgba(249, 115, 22, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+    }
+}
+
+@keyframes prefixDeleteShimmer {
+    0% {
+        background-position: 100% 0;
+    }
+
+    100% {
+        background-position: -100% 0;
+    }
+}
+
+@media (max-width: 1100px) {
+    .prefix-delete-metric-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .prefix-delete-panel-top {
+        flex-direction: column;
+    }
+
+    .prefix-delete-top-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .prefix-delete-metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 .btn-icon-action {
     width: 40px;
     height: 40px;

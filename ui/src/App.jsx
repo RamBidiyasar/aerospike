@@ -31,6 +31,7 @@ function App() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [prefixDeleteStatus, setPrefixDeleteStatus] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isEditorCollapsed, setIsEditorCollapsed] = useState(false);
@@ -268,36 +269,50 @@ function App() {
       return null;
     }
 
-    setLoading(true);
     setError(null);
 
     try {
-      const response = await recordAPI.deleteByKeyPrefix({
+      const startResponse = await recordAPI.deleteByKeyPrefix({
         namespace: selectedNamespace,
         setName: activeSetName,
         keyPrefix,
         caseSensitive,
       });
 
+      let status = startResponse.data;
+      setPrefixDeleteStatus(status);
+
+      while (status?.status === 'QUEUED' || status?.status === 'RUNNING') {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const pollResponse = await recordAPI.getDeleteByKeyPrefixStatus(status.jobId);
+        status = pollResponse.data;
+        setPrefixDeleteStatus(status);
+      }
+
       selectRecord(null);
       await loadRecordsForScope(selectedNamespace, selectedSet);
 
-      const result = response.data;
-      window.alert(
-        `Prefix delete complete.\n\n` +
-        `Scanned: ${Number(result.scannedRecords || 0).toLocaleString()}\n` +
-        `Matched: ${Number(result.matchedRecords || 0).toLocaleString()}\n` +
-        `Deleted: ${Number(result.deletedRecords || 0).toLocaleString()}\n` +
-        `Failed deletes: ${Number(result.failedDeletes || 0).toLocaleString()}\n` +
-        `Skipped without stored user key: ${Number(result.skippedRecordsWithoutUserKey || 0).toLocaleString()}`
-      );
+      if (status?.status === 'FAILED') {
+        setError(status.message || 'Prefix delete failed');
+      }
 
-      return result;
+      return status;
     } catch (err) {
       setError(err.message);
+      setPrefixDeleteStatus((current) => (
+        current
+          ? {
+              ...current,
+              status: 'FAILED',
+              message: err.message,
+            }
+          : {
+              status: 'FAILED',
+              message: err.message,
+              keyPrefix,
+            }
+      ));
       throw err;
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -369,6 +384,8 @@ function App() {
                 onAddRecord={() => setIsAddModalOpen(true)}
                 onSearch={handleSearch}
                 onDeleteByKeyPrefix={handleDeleteByKeyPrefix}
+                prefixDeleteStatus={prefixDeleteStatus}
+                onDismissPrefixDeleteStatus={() => setPrefixDeleteStatus(null)}
                 onReload={handleReloadRecords}
                 namespace={selectedNamespace}
                 setName={activeSetName}

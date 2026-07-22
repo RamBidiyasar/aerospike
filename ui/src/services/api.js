@@ -81,6 +81,9 @@ export const recordAPI = {
     deleteByKeyPrefix: (deleteRequest) =>
         apiClient.post('/records/delete-by-key-prefix', deleteRequest),
 
+    getDeleteByKeyPrefixStatus: (jobId) =>
+        apiClient.get(`/records/delete-by-key-prefix/${encodePathSegment(jobId)}`),
+
     getRecord: (namespace, setName, key) =>
         apiClient.get(`/records/${encodePathSegment(namespace)}/${encodePathSegment(setName)}/${encodePathSegment(key)}`),
 
