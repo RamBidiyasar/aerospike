@@ -34,24 +34,24 @@ public class AerospikeService {
     private AerospikeClient client;
     private final Map<String, Object> connectionMetadata = new ConcurrentHashMap<>();
     private static final int DEFAULT_SCAN_LIMIT = 100;
-    private static final int MAX_SCAN_LIMIT = 1000;
+    private static final int MAX_SCAN_LIMIT = 20_000;
     private static final int DEFAULT_SEARCH_LIMIT = 100;
     private static final int MAX_SEARCH_LIMIT = 500;
     private static final int DEFAULT_SEARCH_SCAN_LIMIT = 5000;
-    private static final int MAX_SEARCH_SCAN_LIMIT = 20000;
+    private static final int MAX_SEARCH_SCAN_LIMIT = 20_000;
 
     /** Keys per batch delete call — one round-trip covers all cluster nodes. */
-    private static final int PREFIX_DELETE_BATCH_SIZE = 1000;
+    private static final int KEY_PATTERN_BATCH_SIZE = 1000;
     /** Bound buffered matching keys so a fast scan cannot OOM the JVM. */
-    private static final int PREFIX_DELETE_QUEUE_CAPACITY = 50_000;
-    private static final long PREFIX_DELETE_OFFER_TIMEOUT_MS = 5_000L;
-    private static final long PREFIX_DELETE_POLL_TIMEOUT_MS = 200L;
-    private static final long PREFIX_DELETE_PROGRESS_LOG_INTERVAL_MS = 5_000L;
+    private static final int KEY_PATTERN_QUEUE_CAPACITY = 50_000;
+    private static final long KEY_PATTERN_OFFER_TIMEOUT_MS = 5_000L;
+    private static final long KEY_PATTERN_POLL_TIMEOUT_MS = 200L;
+    private static final long KEY_PATTERN_PROGRESS_LOG_INTERVAL_MS = 5_000L;
 
-    private final ConcurrentHashMap<String, PrefixDeleteJob> prefixDeleteJobs = new ConcurrentHashMap<>();
-    private final AtomicReference<String> activePrefixDeleteJobId = new AtomicReference<>();
-    private final ExecutorService prefixDeleteExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "prefix-delete-job");
+    private final ConcurrentHashMap<String, KeyPatternJob> keyPatternJobs = new ConcurrentHashMap<>();
+    private final AtomicReference<String> activeKeyPatternJobId = new AtomicReference<>();
+    private final ExecutorService keyPatternExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "key-pattern-job");
         thread.setDaemon(true);
         return thread;
     });
@@ -506,7 +506,7 @@ public class AerospikeService {
         }
     }
 
-    public List<RecordData> searchRecords(SearchRequest searchRequest) {
+    public SearchResponse searchRecords(SearchRequest searchRequest) {
         ensureConnected();
         if (searchRequest == null) {
             throw new IllegalArgumentException("Search request is required");
@@ -514,11 +514,18 @@ public class AerospikeService {
         validateNamespace(searchRequest.getNamespace());
 
         List<RecordData> matchedRecords = Collections.synchronizedList(new ArrayList<>());
+        AtomicLong matchedTotal = new AtomicLong();
+        AtomicLong scannedRecords = new AtomicLong();
         ScanPolicy scanPolicy = new ScanPolicy();
         int maxResults = clamp(searchRequest.getMaxResults(), DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
-        int maxScanRecords = clamp(searchRequest.getMaxScanRecords(), DEFAULT_SEARCH_SCAN_LIMIT, maxResults,
-                MAX_SEARCH_SCAN_LIMIT);
-        scanPolicy.maxRecords = maxScanRecords;
+        boolean fullScan = searchRequest.getMaxScanRecords() != null && searchRequest.getMaxScanRecords() <= 0;
+        if (fullScan) {
+            // Aerospike: 0 means return/scan all records.
+            scanPolicy.maxRecords = 0;
+        } else {
+            scanPolicy.maxRecords = clamp(searchRequest.getMaxScanRecords(), DEFAULT_SEARCH_SCAN_LIMIT, maxResults,
+                    MAX_SEARCH_SCAN_LIMIT);
+        }
 
         String pattern = searchRequest.getSearchPattern() != null ? searchRequest.getSearchPattern() : "";
         SearchRequest.SearchType searchType = searchRequest.getSearchType() != null
@@ -530,14 +537,29 @@ public class AerospikeService {
         boolean caseSensitive = Boolean.TRUE.equals(searchRequest.getCaseSensitive());
         String normalizedSetName = normalizeSetName(searchRequest.getSetName());
 
+        // KEY-only searches can skip bin payloads for a cheaper scan.
+        scanPolicy.includeBinData = searchField != SearchRequest.SearchField.KEY;
+
         if (isExactKeyLookup(pattern, searchType, searchField)) {
-            return findRecordsByExactKey(searchRequest.getNamespace(), normalizedSetName, pattern, maxResults);
+            List<RecordData> exact = findRecordsByExactKey(
+                    searchRequest.getNamespace(), normalizedSetName, pattern, maxResults);
+            long exactCount = exact.size();
+            return SearchResponse.builder()
+                    .records(exact)
+                    .matchedTotal(exactCount)
+                    .scannedRecords(exactCount)
+                    .maxResults(maxResults)
+                    .fullScan(true)
+                    .truncated(false)
+                    .build();
         }
 
         try {
             client.scanAll(scanPolicy, searchRequest.getNamespace(),
                     normalizedSetName, (key, record) -> {
+                        scannedRecords.incrementAndGet();
                         if (recordMatches(key, record, pattern, searchType, searchField, caseSensitive)) {
+                            matchedTotal.incrementAndGet();
                             synchronized (matchedRecords) {
                                 if (matchedRecords.size() < maxResults) {
                                     matchedRecords.add(toRecordData(key, record));
@@ -546,7 +568,15 @@ public class AerospikeService {
                         }
                     });
 
-            return matchedRecords;
+            long totalMatched = matchedTotal.get();
+            return SearchResponse.builder()
+                    .records(new ArrayList<>(matchedRecords))
+                    .matchedTotal(totalMatched)
+                    .scannedRecords(scannedRecords.get())
+                    .maxResults(maxResults)
+                    .fullScan(fullScan)
+                    .truncated(totalMatched > matchedRecords.size())
+                    .build();
         } catch (Exception e) {
             log.error("Failed to search records from {}.{} with pattern {}",
                     searchRequest.getNamespace(), normalizedSetName, pattern, e);
@@ -619,84 +649,138 @@ public class AerospikeService {
         return keys;
     }
 
-    public DeleteByKeyPrefixResponse deleteByKeyPrefix(DeleteByKeyPrefixRequest request) {
+    public KeyPatternJobResponse startKeyPatternJob(KeyPatternJobRequest request) {
         ensureConnected();
         if (request == null) {
-            throw new IllegalArgumentException("Delete by key prefix request is required");
+            throw new IllegalArgumentException("Key pattern job request is required");
         }
         validateNamespace(request.getNamespace());
-        if (request.getKeyPrefix() == null || request.getKeyPrefix().isBlank()) {
-            throw new IllegalArgumentException("Key prefix is required");
+        if (request.getPattern() == null || request.getPattern().isBlank()) {
+            throw new IllegalArgumentException("Key pattern is required");
         }
+
+        KeyPatternJobRequest.Mode mode = request.getMode() != null
+                ? request.getMode()
+                : KeyPatternJobRequest.Mode.DELETE;
+        SearchRequest.SearchType searchType = request.getSearchType() != null
+                ? request.getSearchType()
+                : SearchRequest.SearchType.PREFIX;
 
         String namespace = request.getNamespace();
         String normalizedSetName = normalizeSetName(request.getSetName());
-        String keyPrefix = request.getKeyPrefix();
+        String pattern = request.getPattern();
         boolean caseSensitive = !Boolean.FALSE.equals(request.getCaseSensitive());
         int nodeCount = Math.max(1, client.getNodes().length);
-        int workerCount = Math.max(2, Math.min(8, nodeCount));
+        int workerCount = mode == KeyPatternJobRequest.Mode.DELETE
+                ? Math.max(2, Math.min(8, nodeCount))
+                : 0;
         long totalRecordsEstimate = estimateRecordsForScope(namespace, normalizedSetName);
 
-        PrefixDeleteJob job = new PrefixDeleteJob(
+        KeyPatternJob job = new KeyPatternJob(
                 UUID.randomUUID().toString(),
+                mode,
                 namespace,
                 normalizedSetName,
-                keyPrefix,
+                pattern,
+                searchType,
                 caseSensitive,
                 nodeCount,
                 workerCount,
                 totalRecordsEstimate);
 
-        if (!activePrefixDeleteJobId.compareAndSet(null, job.jobId)) {
-            String activeJobId = activePrefixDeleteJobId.get();
+        if (!activeKeyPatternJobId.compareAndSet(null, job.jobId)) {
+            String activeJobId = activeKeyPatternJobId.get();
             throw new IllegalStateException(
-                    "A prefix delete is already running (jobId=" + activeJobId + "). Wait for it to finish.");
+                    "A key pattern job is already running (jobId=" + activeJobId + "). Wait for it to finish.");
         }
 
-        prefixDeleteJobs.put(job.jobId, job);
-        job.status.set(PrefixDeleteStatus.QUEUED);
-        job.phase.set(PrefixDeletePhase.SCANNING);
+        keyPatternJobs.put(job.jobId, job);
+        job.status.set(KeyPatternJobStatus.QUEUED);
+        job.phase.set(KeyPatternJobPhase.SCANNING);
         job.message.set("Queued");
         job.startedAtEpochMs.set(System.currentTimeMillis());
 
-        log.info("Queued prefix delete jobId={} namespace={} set={} prefix='{}' nodes={} workers={}",
-                job.jobId, namespace, normalizedSetName == null ? "*" : normalizedSetName, keyPrefix,
-                nodeCount, workerCount);
+        log.info("Queued key pattern jobId={} mode={} namespace={} set={} type={} pattern='{}' nodes={} workers={}",
+                job.jobId, mode, namespace, normalizedSetName == null ? "*" : normalizedSetName,
+                searchType, pattern, nodeCount, workerCount);
 
-        prefixDeleteExecutor.submit(() -> runPrefixDeleteJob(job));
+        keyPatternExecutor.submit(() -> runKeyPatternJob(job));
         return job.toResponse();
     }
 
-    public DeleteByKeyPrefixResponse getDeleteByKeyPrefixStatus(String jobId) {
+    public KeyPatternJobResponse getKeyPatternJobStatus(String jobId) {
         if (jobId == null || jobId.isBlank()) {
             throw new IllegalArgumentException("Job id is required");
         }
-        PrefixDeleteJob job = prefixDeleteJobs.get(jobId);
+        KeyPatternJob job = keyPatternJobs.get(jobId);
         if (job == null) {
-            throw new IllegalArgumentException("Unknown prefix delete job: " + jobId);
+            throw new IllegalArgumentException("Unknown key pattern job: " + jobId);
         }
         return job.toResponse();
     }
 
-    private void runPrefixDeleteJob(PrefixDeleteJob job) {
-        job.status.set(PrefixDeleteStatus.RUNNING);
-        job.phase.set(PrefixDeletePhase.SCANNING);
-        job.message.set("Scanning cluster and deleting matching keys");
+    public KeyPatternJobResponse cancelKeyPatternJob(String jobId) {
+        if (jobId == null || jobId.isBlank()) {
+            throw new IllegalArgumentException("Job id is required");
+        }
+        KeyPatternJob job = keyPatternJobs.get(jobId);
+        if (job == null) {
+            throw new IllegalArgumentException("Unknown key pattern job: " + jobId);
+        }
 
-        String comparablePrefix = normalizeComparableText(job.keyPrefix, job.caseSensitive);
-        BlockingQueue<Key> deleteQueue = new ArrayBlockingQueue<>(PREFIX_DELETE_QUEUE_CAPACITY);
+        KeyPatternJobStatus current = job.status.get();
+        if (current == KeyPatternJobStatus.COMPLETED
+                || current == KeyPatternJobStatus.FAILED
+                || current == KeyPatternJobStatus.CANCELLED) {
+            return job.toResponse();
+        }
+
+        job.cancelRequested.set(true);
+        job.message.set("Cancel requested — stopping…");
+        log.info("Cancel requested for key pattern jobId={} mode={} status={}",
+                job.jobId, job.mode, current);
+        return job.toResponse();
+    }
+
+    private void runKeyPatternJob(KeyPatternJob job) {
+        job.status.set(KeyPatternJobStatus.RUNNING);
+        job.phase.set(KeyPatternJobPhase.SCANNING);
+        boolean isDelete = job.mode == KeyPatternJobRequest.Mode.DELETE;
+        job.message.set(isDelete
+                ? "Scanning cluster and deleting matching keys"
+                : "Scanning cluster and counting matching keys");
+
+        BlockingQueue<Key> deleteQueue = isDelete
+                ? new ArrayBlockingQueue<>(KEY_PATTERN_QUEUE_CAPACITY)
+                : null;
         AtomicBoolean scanComplete = new AtomicBoolean(false);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicBoolean stopProgressLogging = new AtomicBoolean(false);
         Throwable scanFailure = null;
 
-        BatchPolicy batchPolicy = new BatchPolicy();
-        batchPolicy.maxConcurrentThreads = 0;
-        batchPolicy.totalTimeout = 0;
-        batchPolicy.socketTimeout = 30_000;
-        batchPolicy.maxRetries = 2;
+        final BatchPolicy batchPolicy;
+        final BatchDeletePolicy deletePolicy;
+        final ExecutorService deleteWorkers;
 
-        BatchDeletePolicy deletePolicy = new BatchDeletePolicy();
+        if (isDelete) {
+            BatchPolicy configuredBatchPolicy = new BatchPolicy();
+            configuredBatchPolicy.maxConcurrentThreads = 0;
+            configuredBatchPolicy.totalTimeout = 0;
+            configuredBatchPolicy.socketTimeout = 30_000;
+            configuredBatchPolicy.maxRetries = 2;
+
+            batchPolicy = configuredBatchPolicy;
+            deletePolicy = new BatchDeletePolicy();
+            deleteWorkers = Executors.newFixedThreadPool(job.workerCount, runnable -> {
+                Thread thread = new Thread(runnable, "key-pattern-worker-" + job.jobId.substring(0, 8));
+                thread.setDaemon(true);
+                return thread;
+            });
+        } else {
+            batchPolicy = null;
+            deletePolicy = null;
+            deleteWorkers = null;
+        }
 
         ScanPolicy scanPolicy = new ScanPolicy();
         scanPolicy.includeBinData = false;
@@ -705,16 +789,11 @@ public class AerospikeService {
         scanPolicy.totalTimeout = 0;
         scanPolicy.socketTimeout = 60_000;
 
-        ExecutorService deleteWorkers = Executors.newFixedThreadPool(job.workerCount, runnable -> {
-            Thread thread = new Thread(runnable, "prefix-delete-worker-" + job.jobId.substring(0, 8));
-            thread.setDaemon(true);
-            return thread;
-        });
-
+        final BlockingQueue<Key> queueRef = deleteQueue;
         Thread progressLogger = new Thread(() -> {
             while (!stopProgressLogging.get()) {
                 try {
-                    Thread.sleep(PREFIX_DELETE_PROGRESS_LOG_INTERVAL_MS);
+                    Thread.sleep(KEY_PATTERN_PROGRESS_LOG_INTERVAL_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;
@@ -722,9 +801,11 @@ public class AerospikeService {
                 if (stopProgressLogging.get()) {
                     return;
                 }
+                int queueDepth = queueRef == null ? 0 : queueRef.size();
                 log.info(
-                        "Prefix delete progress jobId={} status={} phase={} scanned={} matched={} deleted={} failed={} skippedNoUserKey={} queueDepth={} elapsedMs={}",
+                        "Key pattern progress jobId={} mode={} status={} phase={} scanned={} matched={} deleted={} failed={} skippedNoUserKey={} queueDepth={} elapsedMs={}",
                         job.jobId,
+                        job.mode,
                         job.status.get(),
                         job.phase.get(),
                         job.scannedRecords.get(),
@@ -732,45 +813,68 @@ public class AerospikeService {
                         job.deletedRecords.get(),
                         job.failedDeletes.get(),
                         job.skippedRecordsWithoutUserKey.get(),
-                        deleteQueue.size(),
+                        queueDepth,
                         System.currentTimeMillis() - job.startedAtEpochMs.get());
-                job.message.set(String.format(
-                        Locale.ROOT,
-                        "%s · scanned %s · matched %s · deleted %s · queue %s",
-                        job.phase.get().name().toLowerCase(Locale.ROOT),
-                        formatCount(job.scannedRecords.get()),
-                        formatCount(job.matchedRecords.get()),
-                        formatCount(job.deletedRecords.get()),
-                        formatCount(deleteQueue.size())));
+                if (job.cancelRequested.get()) {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "cancelling · scanned %s · matched %s%s",
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get()),
+                            isDelete ? " · deleted " + formatCount(job.deletedRecords.get()) : ""));
+                } else if (isDelete) {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "%s · scanned %s · matched %s · deleted %s · queue %s",
+                            job.phase.get().name().toLowerCase(Locale.ROOT),
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get()),
+                            formatCount(job.deletedRecords.get()),
+                            formatCount(queueDepth)));
+                } else {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "%s · scanned %s · matched %s",
+                            job.phase.get().name().toLowerCase(Locale.ROOT),
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get())));
+                }
             }
-        }, "prefix-delete-progress-" + job.jobId.substring(0, 8));
+        }, "key-pattern-progress-" + job.jobId.substring(0, 8));
         progressLogger.setDaemon(true);
         progressLogger.start();
 
-        for (int i = 0; i < job.workerCount; i++) {
-            deleteWorkers.submit(() -> drainPrefixDeleteQueue(
-                    deleteQueue,
-                    scanComplete,
-                    failure,
-                    batchPolicy,
-                    deletePolicy,
-                    job.deletedRecords,
-                    job.failedDeletes));
+        if (isDelete) {
+            for (int i = 0; i < job.workerCount; i++) {
+                deleteWorkers.submit(() -> drainKeyPatternDeleteQueue(
+                        deleteQueue,
+                        scanComplete,
+                        failure,
+                        job.cancelRequested,
+                        batchPolicy,
+                        deletePolicy,
+                        job.deletedRecords,
+                        job.failedDeletes));
+            }
         }
 
         try {
-            log.info("Starting prefix delete jobId={} on {}.{} prefix='{}' nodes={} workers={} batchSize={}",
+            log.info("Starting key pattern jobId={} mode={} on {}.{} type={} pattern='{}' nodes={} workers={}",
                     job.jobId,
+                    job.mode,
                     job.namespace,
                     job.setName == null ? "*" : job.setName,
-                    job.keyPrefix,
+                    job.searchType,
+                    job.pattern,
                     job.nodeCount,
-                    job.workerCount,
-                    PREFIX_DELETE_BATCH_SIZE);
+                    job.workerCount);
 
             client.scanAll(scanPolicy, job.namespace, job.setName, (key, record) -> {
+                if (job.cancelRequested.get()) {
+                    throw new JobCancelledException();
+                }
                 if (failure.get() != null) {
-                    throw new RuntimeException("Prefix delete aborted", failure.get());
+                    throw new RuntimeException("Key pattern job aborted", failure.get());
                 }
 
                 long scanned = job.scannedRecords.incrementAndGet();
@@ -780,42 +884,80 @@ public class AerospikeService {
                 }
 
                 String userKey = String.valueOf(key.userKey.getObject());
-                if (!normalizeComparableText(userKey, job.caseSensitive).startsWith(comparablePrefix)) {
+                if (!textMatches(userKey, job.pattern, job.searchType, job.caseSensitive)) {
                     return;
                 }
 
                 job.matchedRecords.incrementAndGet();
-                enqueuePrefixDeleteKey(deleteQueue, key, failure);
+                if (isDelete) {
+                    enqueueKeyPatternDeleteKey(deleteQueue, key, failure, job.cancelRequested);
+                }
 
                 if (scanned % 100_000L == 0L) {
-                    job.message.set(String.format(
-                            Locale.ROOT,
-                            "Scanned %s · matched %s · deleted %s",
-                            formatCount(job.scannedRecords.get()),
-                            formatCount(job.matchedRecords.get()),
-                            formatCount(job.deletedRecords.get())));
+                    if (isDelete) {
+                        job.message.set(String.format(
+                                Locale.ROOT,
+                                "Scanned %s · matched %s · deleted %s",
+                                formatCount(job.scannedRecords.get()),
+                                formatCount(job.matchedRecords.get()),
+                                formatCount(job.deletedRecords.get())));
+                    } else {
+                        job.message.set(String.format(
+                                Locale.ROOT,
+                                "Scanned %s · matched %s",
+                                formatCount(job.scannedRecords.get()),
+                                formatCount(job.matchedRecords.get())));
+                    }
                 }
             });
 
-            job.phase.set(PrefixDeletePhase.DRAINING);
-            job.message.set("Scan finished; draining remaining delete batches");
-        } catch (Exception e) {
+            if (isDelete && !job.cancelRequested.get()) {
+                job.phase.set(KeyPatternJobPhase.DRAINING);
+                job.message.set("Scan finished; draining remaining delete batches");
+            }
+        } catch (JobCancelledException e) {
             scanFailure = e;
-            log.error("Failed to delete records by key prefix jobId={} from {}.{} with prefix {}",
-                    job.jobId, job.namespace, job.setName, job.keyPrefix, e);
+            log.info("Key pattern job cancelled during scan jobId={} mode={}", job.jobId, job.mode);
+        } catch (Exception e) {
+            if (isJobCancelled(e) || job.cancelRequested.get()) {
+                scanFailure = new JobCancelledException();
+                log.info("Key pattern job cancelled jobId={} mode={}", job.jobId, job.mode);
+            } else {
+                scanFailure = e;
+                log.error("Failed key pattern jobId={} mode={} from {}.{} type={} pattern={}",
+                        job.jobId, job.mode, job.namespace, job.setName, job.searchType, job.pattern, e);
+            }
         } finally {
             scanComplete.set(true);
-            deleteWorkers.shutdown();
-            try {
-                if (!deleteWorkers.awaitTermination(2, TimeUnit.HOURS)) {
+
+            if (deleteWorkers != null) {
+                boolean cancelling = job.cancelRequested.get() || isJobCancelled(scanFailure);
+                if (cancelling) {
+                    deleteQueue.clear();
                     deleteWorkers.shutdownNow();
-                    failure.compareAndSet(null,
-                            new RuntimeException("Timed out waiting for batch deletes to finish"));
+                } else {
+                    deleteWorkers.shutdown();
                 }
-            } catch (InterruptedException e) {
-                deleteWorkers.shutdownNow();
-                Thread.currentThread().interrupt();
-                failure.compareAndSet(null, e);
+                try {
+                    long waitHours = cancelling ? 0L : 2L;
+                    long waitSeconds = cancelling ? 30L : 0L;
+                    boolean finished = cancelling
+                            ? deleteWorkers.awaitTermination(waitSeconds, TimeUnit.SECONDS)
+                            : deleteWorkers.awaitTermination(waitHours, TimeUnit.HOURS);
+                    if (!finished) {
+                        deleteWorkers.shutdownNow();
+                        if (!cancelling) {
+                            failure.compareAndSet(null,
+                                    new RuntimeException("Timed out waiting for batch deletes to finish"));
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    deleteWorkers.shutdownNow();
+                    Thread.currentThread().interrupt();
+                    if (!cancelling) {
+                        failure.compareAndSet(null, e);
+                    }
+                }
             }
 
             stopProgressLogging.set(true);
@@ -827,17 +969,46 @@ public class AerospikeService {
             }
 
             job.finishedAtEpochMs.set(System.currentTimeMillis());
-            job.phase.set(PrefixDeletePhase.DONE);
+            job.phase.set(KeyPatternJobPhase.DONE);
 
             Throwable asyncFailure = failure.get() != null ? failure.get() : scanFailure;
-            if (asyncFailure != null) {
-                job.status.set(PrefixDeleteStatus.FAILED);
+            boolean cancelled = job.cancelRequested.get() || isJobCancelled(asyncFailure);
+            if (cancelled) {
+                job.status.set(KeyPatternJobStatus.CANCELLED);
+                if (isDelete) {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "Cancelled · scanned %s · matched %s · deleted %s · failed %s",
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get()),
+                            formatCount(job.deletedRecords.get()),
+                            formatCount(job.failedDeletes.get())));
+                } else {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "Cancelled · scanned %s · matched %s",
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get())));
+                }
+                log.info(
+                        "Key pattern job cancelled jobId={} mode={} scanned={} matched={} deleted={} failed={} skippedNoUserKey={} elapsedMs={}",
+                        job.jobId,
+                        job.mode,
+                        job.scannedRecords.get(),
+                        job.matchedRecords.get(),
+                        job.deletedRecords.get(),
+                        job.failedDeletes.get(),
+                        job.skippedRecordsWithoutUserKey.get(),
+                        job.finishedAtEpochMs.get() - job.startedAtEpochMs.get());
+            } else if (asyncFailure != null) {
+                job.status.set(KeyPatternJobStatus.FAILED);
                 job.message.set(asyncFailure.getMessage() == null
-                        ? "Prefix delete failed"
+                        ? (isDelete ? "Key pattern delete failed" : "Key pattern count failed")
                         : asyncFailure.getMessage());
                 log.error(
-                        "Prefix delete failed jobId={} scanned={} matched={} deleted={} failed={} skippedNoUserKey={} elapsedMs={}",
+                        "Key pattern job failed jobId={} mode={} scanned={} matched={} deleted={} failed={} skippedNoUserKey={} elapsedMs={}",
                         job.jobId,
+                        job.mode,
                         job.scannedRecords.get(),
                         job.matchedRecords.get(),
                         job.deletedRecords.get(),
@@ -846,20 +1017,30 @@ public class AerospikeService {
                         job.finishedAtEpochMs.get() - job.startedAtEpochMs.get(),
                         asyncFailure);
             } else {
-                job.status.set(PrefixDeleteStatus.COMPLETED);
-                job.message.set(String.format(
-                        Locale.ROOT,
-                        "Completed · scanned %s · matched %s · deleted %s · failed %s",
-                        formatCount(job.scannedRecords.get()),
-                        formatCount(job.matchedRecords.get()),
-                        formatCount(job.deletedRecords.get()),
-                        formatCount(job.failedDeletes.get())));
+                job.status.set(KeyPatternJobStatus.COMPLETED);
+                if (isDelete) {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "Completed · scanned %s · matched %s · deleted %s · failed %s",
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get()),
+                            formatCount(job.deletedRecords.get()),
+                            formatCount(job.failedDeletes.get())));
+                } else {
+                    job.message.set(String.format(
+                            Locale.ROOT,
+                            "Completed · scanned %s · matched %s",
+                            formatCount(job.scannedRecords.get()),
+                            formatCount(job.matchedRecords.get())));
+                }
                 log.info(
-                        "Prefix delete complete jobId={} on {}.{} prefix='{}' scanned={} matched={} deleted={} failed={} skippedNoUserKey={} elapsedMs={}",
+                        "Key pattern job complete jobId={} mode={} on {}.{} type={} pattern='{}' scanned={} matched={} deleted={} failed={} skippedNoUserKey={} elapsedMs={}",
                         job.jobId,
+                        job.mode,
                         job.namespace,
                         job.setName == null ? "*" : job.setName,
-                        job.keyPrefix,
+                        job.searchType,
+                        job.pattern,
                         job.scannedRecords.get(),
                         job.matchedRecords.get(),
                         job.deletedRecords.get(),
@@ -868,56 +1049,75 @@ public class AerospikeService {
                         job.finishedAtEpochMs.get() - job.startedAtEpochMs.get());
             }
 
-            activePrefixDeleteJobId.compareAndSet(job.jobId, null);
+            activeKeyPatternJobId.compareAndSet(job.jobId, null);
         }
+    }
+
+    private static boolean isJobCancelled(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof JobCancelledException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static String formatCount(long value) {
         return String.format(Locale.ROOT, "%,d", value);
     }
 
-    private void enqueuePrefixDeleteKey(
+    private void enqueueKeyPatternDeleteKey(
             BlockingQueue<Key> deleteQueue,
             Key key,
-            AtomicReference<Throwable> failure) {
+            AtomicReference<Throwable> failure,
+            AtomicBoolean cancelRequested) {
         try {
-            while (!deleteQueue.offer(key, PREFIX_DELETE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            while (!deleteQueue.offer(key, KEY_PATTERN_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                if (cancelRequested.get()) {
+                    throw new JobCancelledException();
+                }
                 Throwable asyncFailure = failure.get();
                 if (asyncFailure != null) {
-                    throw new RuntimeException("Prefix delete aborted", asyncFailure);
+                    throw new RuntimeException("Key pattern delete aborted", asyncFailure);
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while queueing key for prefix delete", e);
+            throw new RuntimeException("Interrupted while queueing key for delete", e);
         }
     }
 
-    private void drainPrefixDeleteQueue(
+    private void drainKeyPatternDeleteQueue(
             BlockingQueue<Key> deleteQueue,
             AtomicBoolean scanComplete,
             AtomicReference<Throwable> failure,
+            AtomicBoolean cancelRequested,
             BatchPolicy batchPolicy,
             BatchDeletePolicy deletePolicy,
             AtomicLong deletedRecords,
             AtomicLong failedDeletes) {
-        List<Key> batch = new ArrayList<>(PREFIX_DELETE_BATCH_SIZE);
+        List<Key> batch = new ArrayList<>(KEY_PATTERN_BATCH_SIZE);
         try {
             while (true) {
-                if (failure.get() != null) {
+                if (cancelRequested.get() || failure.get() != null) {
                     return;
                 }
 
-                Key key = deleteQueue.poll(PREFIX_DELETE_POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                Key key = deleteQueue.poll(KEY_PATTERN_POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
                 if (key != null) {
                     batch.add(key);
-                    deleteQueue.drainTo(batch, PREFIX_DELETE_BATCH_SIZE - batch.size());
+                    deleteQueue.drainTo(batch, KEY_PATTERN_BATCH_SIZE - batch.size());
                 }
 
-                boolean shouldFlush = batch.size() >= PREFIX_DELETE_BATCH_SIZE
+                boolean shouldFlush = batch.size() >= KEY_PATTERN_BATCH_SIZE
                         || (scanComplete.get() && !batch.isEmpty() && (key == null || deleteQueue.isEmpty()));
                 if (shouldFlush) {
-                    flushPrefixDeleteBatch(batch, batchPolicy, deletePolicy, deletedRecords, failedDeletes);
+                    if (cancelRequested.get()) {
+                        return;
+                    }
+                    flushKeyPatternDeleteBatch(batch, batchPolicy, deletePolicy, deletedRecords, failedDeletes);
                     batch.clear();
                 }
 
@@ -927,14 +1127,18 @@ public class AerospikeService {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            failure.compareAndSet(null, e);
+            if (!cancelRequested.get()) {
+                failure.compareAndSet(null, e);
+            }
         } catch (Exception e) {
-            failure.compareAndSet(null, e);
-            log.error("Prefix delete worker failed", e);
+            if (!cancelRequested.get()) {
+                failure.compareAndSet(null, e);
+                log.error("Key pattern delete worker failed", e);
+            }
         }
     }
 
-    private void flushPrefixDeleteBatch(
+    private void flushKeyPatternDeleteBatch(
             List<Key> batch,
             BatchPolicy batchPolicy,
             BatchDeletePolicy deletePolicy,
@@ -947,16 +1151,16 @@ public class AerospikeService {
         Key[] keys = batch.toArray(new Key[0]);
         try {
             BatchResults results = client.delete(batchPolicy, deletePolicy, keys);
-            tallyPrefixDeleteResults(results.records, deletedRecords, failedDeletes);
+            tallyKeyPatternDeleteResults(results.records, deletedRecords, failedDeletes);
         } catch (AerospikeException.BatchRecordArray e) {
-            tallyPrefixDeleteResults(e.records, deletedRecords, failedDeletes);
+            tallyKeyPatternDeleteResults(e.records, deletedRecords, failedDeletes);
         } catch (Exception e) {
             failedDeletes.addAndGet(keys.length);
-            log.warn("Batch prefix delete failed for {} keys: {}", keys.length, e.getMessage());
+            log.warn("Batch key pattern delete failed for {} keys: {}", keys.length, e.getMessage());
         }
     }
 
-    private void tallyPrefixDeleteResults(
+    private void tallyKeyPatternDeleteResults(
             BatchRecord[] records,
             AtomicLong deletedRecords,
             AtomicLong failedDeletes) {
@@ -972,30 +1176,40 @@ public class AerospikeService {
         }
     }
 
-    private enum PrefixDeleteStatus {
+    private enum KeyPatternJobStatus {
         QUEUED,
         RUNNING,
         COMPLETED,
-        FAILED
+        FAILED,
+        CANCELLED
     }
 
-    private enum PrefixDeletePhase {
+    private enum KeyPatternJobPhase {
         SCANNING,
         DRAINING,
         DONE
     }
 
-    private static final class PrefixDeleteJob {
+    private static final class JobCancelledException extends RuntimeException {
+        private JobCancelledException() {
+            super("Cancelled by user");
+        }
+    }
+
+    private static final class KeyPatternJob {
         private final String jobId;
+        private final KeyPatternJobRequest.Mode mode;
         private final String namespace;
         private final String setName;
-        private final String keyPrefix;
+        private final String pattern;
+        private final SearchRequest.SearchType searchType;
         private final boolean caseSensitive;
         private final int nodeCount;
         private final int workerCount;
         private final long totalRecordsEstimate;
-        private final AtomicReference<PrefixDeleteStatus> status = new AtomicReference<>(PrefixDeleteStatus.QUEUED);
-        private final AtomicReference<PrefixDeletePhase> phase = new AtomicReference<>(PrefixDeletePhase.SCANNING);
+        private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
+        private final AtomicReference<KeyPatternJobStatus> status = new AtomicReference<>(KeyPatternJobStatus.QUEUED);
+        private final AtomicReference<KeyPatternJobPhase> phase = new AtomicReference<>(KeyPatternJobPhase.SCANNING);
         private final AtomicReference<String> message = new AtomicReference<>("Queued");
         private final AtomicLong scannedRecords = new AtomicLong();
         private final AtomicLong matchedRecords = new AtomicLong();
@@ -1005,37 +1219,43 @@ public class AerospikeService {
         private final AtomicLong startedAtEpochMs = new AtomicLong();
         private final AtomicLong finishedAtEpochMs = new AtomicLong();
 
-        private PrefixDeleteJob(
+        private KeyPatternJob(
                 String jobId,
+                KeyPatternJobRequest.Mode mode,
                 String namespace,
                 String setName,
-                String keyPrefix,
+                String pattern,
+                SearchRequest.SearchType searchType,
                 boolean caseSensitive,
                 int nodeCount,
                 int workerCount,
                 long totalRecordsEstimate) {
             this.jobId = jobId;
+            this.mode = mode;
             this.namespace = namespace;
             this.setName = setName;
-            this.keyPrefix = keyPrefix;
+            this.pattern = pattern;
+            this.searchType = searchType;
             this.caseSensitive = caseSensitive;
             this.nodeCount = nodeCount;
             this.workerCount = workerCount;
             this.totalRecordsEstimate = Math.max(0L, totalRecordsEstimate);
         }
 
-        private DeleteByKeyPrefixResponse toResponse() {
+        private KeyPatternJobResponse toResponse() {
             long started = startedAtEpochMs.get();
             long finished = finishedAtEpochMs.get();
             long end = finished > 0 ? finished : System.currentTimeMillis();
-            return DeleteByKeyPrefixResponse.builder()
+            return KeyPatternJobResponse.builder()
                     .jobId(jobId)
+                    .mode(mode.name())
                     .status(status.get().name())
                     .phase(phase.get().name())
                     .message(message.get())
                     .namespace(namespace)
                     .setName(setName)
-                    .keyPrefix(keyPrefix)
+                    .pattern(pattern)
+                    .searchType(searchType.name())
                     .caseSensitive(caseSensitive)
                     .totalRecordsEstimate(totalRecordsEstimate > 0 ? totalRecordsEstimate : null)
                     .scannedRecords(scannedRecords.get())

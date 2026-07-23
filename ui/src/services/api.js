@@ -78,9 +78,20 @@ export const recordAPI = {
     searchRecords: (searchRequest) =>
         apiClient.post('/records/search', searchRequest),
 
+    startKeyPatternJob: (jobRequest) =>
+        apiClient.post('/records/key-pattern-jobs', jobRequest),
+
+    getKeyPatternJobStatus: (jobId) =>
+        apiClient.get(`/records/key-pattern-jobs/${encodePathSegment(jobId)}`),
+
+    cancelKeyPatternJob: (jobId) =>
+        apiClient.post(`/records/key-pattern-jobs/${encodePathSegment(jobId)}/cancel`),
+
+    /** @deprecated Prefer startKeyPatternJob with mode=DELETE and searchType=PREFIX. */
     deleteByKeyPrefix: (deleteRequest) =>
         apiClient.post('/records/delete-by-key-prefix', deleteRequest),
 
+    /** @deprecated Prefer getKeyPatternJobStatus. */
     getDeleteByKeyPrefixStatus: (jobId) =>
         apiClient.get(`/records/delete-by-key-prefix/${encodePathSegment(jobId)}`),
 

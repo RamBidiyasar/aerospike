@@ -52,6 +52,8 @@
 }
 
 .search-badge {
+    display: inline-flex;
+    align-items: center;
     padding: 0.2rem 0.55rem;
     border-radius: 999px;
     background: rgba(16, 185, 129, 0.14);
@@ -59,6 +61,12 @@
     border: 1px solid rgba(16, 185, 129, 0.28);
     font-size: var(--font-size-xs);
     font-weight: 700;
+}
+
+.search-badge.full-scan {
+    background: color-mix(in srgb, #2563eb 14%, transparent);
+    color: #2563eb;
+    border-color: color-mix(in srgb, #2563eb 28%, transparent);
 }
 
 .table-actions {
@@ -124,6 +132,22 @@
     border-color: rgba(239, 68, 68, 0.38);
 }
 
+.prefix-delete-panel.status-cancelled {
+    border-color: rgba(245, 158, 11, 0.35);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.45)),
+        radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 42%),
+        var(--color-bg-elevated);
+}
+
+[data-theme="dark"] .prefix-delete-panel.status-cancelled {
+    background:
+        linear-gradient(180deg, rgba(31, 35, 41, 0.95), rgba(19, 21, 26, 0.92)),
+        radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 42%),
+        var(--color-bg-elevated);
+    border-color: rgba(245, 158, 11, 0.38);
+}
+
 .prefix-delete-panel-glow {
     position: absolute;
     inset: auto -20% -55% auto;
@@ -141,6 +165,10 @@
 
 .prefix-delete-panel.status-failed .prefix-delete-panel-glow {
     background: rgba(239, 68, 68, 0.14);
+}
+
+.prefix-delete-panel.status-cancelled .prefix-delete-panel-glow {
+    background: rgba(245, 158, 11, 0.14);
 }
 
 .prefix-delete-panel-top {
@@ -183,6 +211,12 @@
     color: var(--color-error);
     background: rgba(239, 68, 68, 0.14);
     border-color: rgba(239, 68, 68, 0.28);
+}
+
+.prefix-delete-panel.status-cancelled .prefix-delete-icon-wrap {
+    color: #d97706;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.28);
 }
 
 .prefix-delete-panel.status-running .prefix-delete-icon-wrap,
@@ -237,6 +271,12 @@
     color: #b91c1c;
     background: rgba(239, 68, 68, 0.14);
     border-color: rgba(239, 68, 68, 0.25);
+}
+
+.prefix-delete-panel.status-cancelled .prefix-delete-status-pill {
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.25);
 }
 
 .prefix-delete-phase-pill {
@@ -331,6 +371,31 @@
     background: var(--color-bg-tertiary);
 }
 
+.prefix-delete-cancel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.12);
+    color: #b91c1c;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.prefix-delete-cancel:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.prefix-delete-cancel:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
 .prefix-delete-progress-block {
     position: relative;
     z-index: 1;
@@ -381,6 +446,11 @@
 .prefix-delete-panel.status-failed .prefix-delete-progress-fill {
     background: linear-gradient(90deg, #f87171, #ef4444);
     box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}
+
+.prefix-delete-panel.status-cancelled .prefix-delete-progress-fill {
+    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.3);
 }
 
 .prefix-delete-secondary-progress {

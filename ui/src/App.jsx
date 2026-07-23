@@ -31,7 +31,8 @@ function App() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [prefixDeleteStatus, setPrefixDeleteStatus] = useState(null);
+  const [keyPatternJobStatus, setKeyPatternJobStatus] = useState(null);
+  const [searchMeta, setSearchMeta] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isEditorCollapsed, setIsEditorCollapsed] = useState(false);
@@ -83,6 +84,7 @@ function App() {
     const apiSetName = setScope === ALL_SETS ? null : setScope;
     const response = await recordAPI.scanRecords(namespace, apiSetName, maxRecords);
     updateRecords(response.data);
+    setSearchMeta(null);
   };
 
   const handleSelectSet = async (namespace, setName) => {
@@ -241,6 +243,7 @@ function App() {
 
     try {
       if (clearSearch || !searchPattern.trim()) {
+        setSearchMeta(null);
         await loadRecordsForScope(selectedNamespace, selectedSet, maxRecords || 100);
       } else {
         const searchRequest = {
@@ -254,52 +257,66 @@ function App() {
           maxScanRecords,
         };
         const response = await recordAPI.searchRecords(searchRequest);
-        updateRecords(response.data);
+        const payload = response.data;
+        const records = Array.isArray(payload) ? payload : (payload?.records || []);
+        updateRecords(records);
+        setSearchMeta(Array.isArray(payload) ? null : {
+          matchedTotal: payload?.matchedTotal ?? records.length,
+          scannedRecords: payload?.scannedRecords ?? null,
+          maxResults: payload?.maxResults ?? maxResults,
+          fullScan: Boolean(payload?.fullScan),
+          truncated: Boolean(payload?.truncated),
+        });
       }
     } catch (err) {
       setError(err.message);
       updateRecords([]);
+      setSearchMeta(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteByKeyPrefix = async ({ keyPrefix, caseSensitive }) => {
-    if (!selectedNamespace || !selectedSet || !keyPrefix.trim()) {
+  const handleKeyPatternJob = async ({ pattern, searchType, caseSensitive, mode }) => {
+    if (!selectedNamespace || !selectedSet || !pattern.trim()) {
       return null;
     }
 
     setError(null);
 
     try {
-      const startResponse = await recordAPI.deleteByKeyPrefix({
+      const startResponse = await recordAPI.startKeyPatternJob({
         namespace: selectedNamespace,
         setName: activeSetName,
-        keyPrefix,
+        pattern,
+        searchType,
         caseSensitive,
+        mode,
       });
 
       let status = startResponse.data;
-      setPrefixDeleteStatus(status);
+      setKeyPatternJobStatus(status);
 
       while (status?.status === 'QUEUED' || status?.status === 'RUNNING') {
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        const pollResponse = await recordAPI.getDeleteByKeyPrefixStatus(status.jobId);
+        const pollResponse = await recordAPI.getKeyPatternJobStatus(status.jobId);
         status = pollResponse.data;
-        setPrefixDeleteStatus(status);
+        setKeyPatternJobStatus(status);
       }
 
-      selectRecord(null);
-      await loadRecordsForScope(selectedNamespace, selectedSet);
+      if (mode === 'DELETE' && (status?.status === 'COMPLETED' || status?.status === 'CANCELLED')) {
+        selectRecord(null);
+        await loadRecordsForScope(selectedNamespace, selectedSet);
+      }
 
       if (status?.status === 'FAILED') {
-        setError(status.message || 'Prefix delete failed');
+        setError(status.message || (mode === 'COUNT' ? 'Key pattern count failed' : 'Key pattern delete failed'));
       }
 
       return status;
     } catch (err) {
       setError(err.message);
-      setPrefixDeleteStatus((current) => (
+      setKeyPatternJobStatus((current) => (
         current
           ? {
               ...current,
@@ -308,10 +325,27 @@ function App() {
             }
           : {
               status: 'FAILED',
+              mode,
               message: err.message,
-              keyPrefix,
+              pattern,
+              searchType,
             }
       ));
+      throw err;
+    }
+  };
+
+  const handleCancelKeyPatternJob = async (jobId) => {
+    if (!jobId) {
+      return null;
+    }
+
+    try {
+      const response = await recordAPI.cancelKeyPatternJob(jobId);
+      setKeyPatternJobStatus(response.data);
+      return response.data;
+    } catch (err) {
+      setError(err.message);
       throw err;
     }
   };
@@ -383,9 +417,11 @@ function App() {
                 selectedRecord={selectedRecord}
                 onAddRecord={() => setIsAddModalOpen(true)}
                 onSearch={handleSearch}
-                onDeleteByKeyPrefix={handleDeleteByKeyPrefix}
-                prefixDeleteStatus={prefixDeleteStatus}
-                onDismissPrefixDeleteStatus={() => setPrefixDeleteStatus(null)}
+                onKeyPatternJob={handleKeyPatternJob}
+                keyPatternJobStatus={keyPatternJobStatus}
+                onCancelKeyPatternJob={handleCancelKeyPatternJob}
+                onDismissKeyPatternJobStatus={() => setKeyPatternJobStatus(null)}
+                searchMeta={searchMeta}
                 onReload={handleReloadRecords}
                 namespace={selectedNamespace}
                 setName={activeSetName}
