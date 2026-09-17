@@ -710,7 +710,7 @@ public class AerospikeService {
 
     public KeyPatternJobResponse getKeyPatternJobStatus(String jobId) {
         if (jobId == null || jobId.isBlank()) {
-            throw new IllegalArgumentException("Job id is required");
+            throw new IllegalArgumentException("Job id is required here");
         }
         KeyPatternJob job = keyPatternJobs.get(jobId);
         if (job == null) {
